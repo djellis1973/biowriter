@@ -592,7 +592,7 @@ def get_progress_info(session_id):
         "remaining_words": remaining_words,
         "status_text": status_text
     }
-
+    
 def auto_correct_text(text):
     if not text or not st.session_state.spellcheck_enabled:
         return text
@@ -644,23 +644,24 @@ def show_vignette_modal():
     def on_publish(vignette):
         st.success(f"🎉 Vignette '{vignette['title']}' published!")
         
-        st.write("### What would you like to do?")
+        # Create buttons AFTER the form context
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("📚 Add to Session", key="add_to_session_after"):
+            # Store in session state for later use
+            if st.button("📚 Add to Session", key=f"add_to_session_{vignette['id']}"):
                 st.session_state.selected_vignette_for_session = vignette
                 st.session_state.show_vignette_modal = False
                 st.rerun()
         
         with col2:
-            if st.button("📖 View All Vignettes", key="view_all_after"):
+            if st.button("📖 View All Vignettes", key=f"view_all_{vignette['id']}"):
                 st.session_state.show_vignette_modal = False
                 st.session_state.show_vignette_manager = True
                 st.rerun()
         
         with col3:
-            if st.button("✏️ Keep Writing", key="keep_writing"):
+            if st.button("✏️ Keep Writing", key=f"keep_writing_{vignette['id']}"):
                 st.session_state.show_vignette_modal = False
                 st.rerun()
     
@@ -862,16 +863,23 @@ def show_session_manager():
         all_sessions = session_manager.get_all_sessions()
         for i, session in enumerate(all_sessions):
             if session["id"] == session_id:
-                if i < len(SESSIONS):
-                    st.session_state.current_session = i
+                # Update current session index
+                custom_sessions = all_sessions[len(SESSIONS):]
+                if session in custom_sessions:
+                    # It's a custom session
+                    custom_index = custom_sessions.index(session)
+                    st.session_state.current_session = len(SESSIONS) + custom_index
                 else:
-                    st.info(f"Selected custom session: {session['title']}")
+                    # It's a standard session
+                    for j, standard_session in enumerate(SESSIONS):
+                        if standard_session["id"] == session_id:
+                            st.session_state.current_session = j
+                            break
+                
+                st.session_state.current_question = 0
+                st.session_state.current_question_override = None
+                st.rerun()
                 break
-        
-        st.session_state.show_session_manager = False
-        st.session_state.current_question = 0
-        st.session_state.current_question_override = None
-        st.rerun()
     
     if st.button("➕ Create New Session", type="primary", use_container_width=True):
         st.session_state.show_session_manager = False
@@ -1337,7 +1345,7 @@ with st.sidebar:
         st.info("Add your birthdate to enable historical context")
     
     st.divider()
-    st.header("✨ Vignettes & Custom Topics")
+    st.header("✨ Vignettes")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -1345,8 +1353,8 @@ with st.sidebar:
             st.session_state.show_vignette_modal = True
             st.rerun()
     with col2:
-        if st.button("💡 Custom Topic", use_container_width=True):
-            st.session_state.show_custom_topic_modal = True
+        if st.button("📖 View All", use_container_width=True):
+            st.session_state.show_vignette_manager = True
             st.rerun()
     
     st.divider()
@@ -1369,24 +1377,7 @@ with st.sidebar:
         st.session_state.show_topic_browser = True
         st.rerun()
     
-    if st.session_state.logged_in and VignetteManager:
-        try:
-            vignette_manager = VignetteManager(st.session_state.user_id)
-            all_vignettes = vignette_manager.get_all_vignettes(include_drafts=True)
-            published = vignette_manager.get_published_vignettes()
-            
-            with st.expander(f"📊 Vignette Stats ({len(all_vignettes)})", expanded=False):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Published", len(published))
-                with col2:
-                    st.metric("Drafts", len(all_vignettes) - len(published))
-                
-                if all_vignettes:
-                    total_words = sum(v.get('word_count', 0) for v in all_vignettes)
-                    st.caption(f"Total words: {total_words}")
-        except:
-            pass
+    # REMOVED the Vignette Stats expander that was causing issues
     
     st.divider()
     st.header("📖 Sessions")
