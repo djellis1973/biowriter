@@ -19,6 +19,8 @@ from PIL import Image
 import io
 import random
 
+DEFAULT_WORD_TARGET = 500
+
 # ── OpenAI client ─────────────────────────────────────────────────────────────
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
 
