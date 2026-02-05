@@ -641,31 +641,44 @@ def show_vignette_modal():
     
     vignette_manager = VignetteManager(st.session_state.user_id)
     
+    # Store publish callback outside the form context
+    if 'published_vignette' not in st.session_state:
+        st.session_state.published_vignette = None
+    
     def on_publish(vignette):
+        # Store vignette in session state instead of creating buttons here
+        st.session_state.published_vignette = vignette
         st.success(f"🎉 Vignette '{vignette['title']}' published!")
+        st.rerun()
+    
+    vignette_manager.display_vignette_creator(on_publish=on_publish)
+    
+    # Show publish options after vignette is published (outside form context)
+    if st.session_state.published_vignette:
+        vignette = st.session_state.published_vignette
+        st.write("### What would you like to do?")
         
-        # Create buttons AFTER the form context
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Store in session state for later use
-            if st.button("📚 Add to Session", key=f"add_to_session_{vignette['id']}"):
+            if st.button("📚 Add to Session", key="add_to_session_after", use_container_width=True):
                 st.session_state.selected_vignette_for_session = vignette
                 st.session_state.show_vignette_modal = False
+                st.session_state.published_vignette = None
                 st.rerun()
         
         with col2:
-            if st.button("📖 View All Vignettes", key=f"view_all_{vignette['id']}"):
+            if st.button("📖 View All Vignettes", key="view_all_after", use_container_width=True):
                 st.session_state.show_vignette_modal = False
                 st.session_state.show_vignette_manager = True
+                st.session_state.published_vignette = None
                 st.rerun()
         
         with col3:
-            if st.button("✏️ Keep Writing", key=f"keep_writing_{vignette['id']}"):
+            if st.button("✏️ Keep Writing", key="keep_writing", use_container_width=True):
                 st.session_state.show_vignette_modal = False
+                st.session_state.published_vignette = None
                 st.rerun()
-    
-    vignette_manager.display_vignette_creator(on_publish=on_publish)
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -781,25 +794,6 @@ def show_vignette_detail():
     
     st.markdown('</div>', unsafe_allow_html=True)
 
-def show_custom_topic_modal():
-    if not TopicBank:
-        st.error("Topic module not available")
-        st.session_state.show_custom_topic_modal = False
-        return
-    
-    st.markdown('<div class="modal-overlay">', unsafe_allow_html=True)
-    
-    if st.button("← Back", key="custom_topic_back"):
-        st.session_state.show_custom_topic_modal = False
-        st.rerun()
-    
-    st.title("✨ Custom Topic")
-    
-    topic_bank = TopicBank(st.session_state.user_id)
-    topic_bank.display_topic_creator()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
 def show_topic_browser():
     if not TopicBank:
         st.error("Topic module not available")
@@ -820,7 +814,9 @@ def show_topic_browser():
         switch_to_custom_topic(topic_text)
         st.session_state.show_topic_browser = False
     
-    topic_bank.display_topic_browser(on_topic_select=on_topic_select)
+    # FIX: Use a unique key that won't cause duplicates
+    import time
+    topic_bank.display_topic_browser(on_topic_select=on_topic_select, unique_key=str(time.time()))
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -945,6 +941,7 @@ default_state = {
     "selected_vignette_id": None,
     "editing_vignette_id": None,
     "selected_vignette_for_session": None,
+    "published_vignette": None,  # Added for vignette publish handling
 }
 
 for key, value in default_state.items():
@@ -1188,10 +1185,6 @@ if st.session_state.show_vignette_modal:
     show_vignette_modal()
     st.stop()
 
-if st.session_state.show_custom_topic_modal:
-    show_custom_topic_modal()
-    st.stop()
-
 if st.session_state.show_topic_browser:
     show_topic_browser()
     st.stop()
@@ -1377,7 +1370,7 @@ with st.sidebar:
         st.session_state.show_topic_browser = True
         st.rerun()
     
-    # REMOVED the Vignette Stats expander that was causing issues
+    # Note: Custom Topic button removed - you wanted only Browse Topics
     
     st.divider()
     st.header("📖 Sessions")
