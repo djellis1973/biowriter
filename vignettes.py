@@ -7,7 +7,7 @@ import os
 import uuid
 
 class VignetteManager:
-    """Manages vignettes (short stories) for instant gratification"""
+    """Manages vignettes (short stories)"""
     
     def __init__(self, user_id: str):
         self.user_id = user_id
@@ -164,36 +164,6 @@ class VignetteManager:
         
         return results
     
-    def increment_views(self, vignette_id: str):
-        """Increment view count for a vignette"""
-        for vignette in self.vignettes:
-            if vignette["id"] == vignette_id:
-                vignette["views"] = vignette.get("views", 0) + 1
-                break
-        
-        for vignette in self.published:
-            if vignette["id"] == vignette_id:
-                vignette["views"] = vignette.get("views", 0) + 1
-                break
-        
-        self._save_vignettes()
-        self._save_published()
-    
-    def add_like(self, vignette_id: str):
-        """Add a like to a vignette"""
-        for vignette in self.vignettes:
-            if vignette["id"] == vignette_id:
-                vignette["likes"] = vignette.get("likes", 0) + 1
-                break
-        
-        for vignette in self.published:
-            if vignette["id"] == vignette_id:
-                vignette["likes"] = vignette.get("likes", 0) + 1
-                break
-        
-        self._save_vignettes()
-        self._save_published()
-    
     def display_vignette_creator(self, on_publish=None):
         """Display vignette creation interface"""
         st.subheader("✨ Write a Short Story")
@@ -250,14 +220,19 @@ class VignetteManager:
                 
                 st.success("🎉 Published! Your story is now live.")
                 st.balloons()
-                st.rerun()
+                return True
             
             elif draft_button and content.strip():
                 title_to_use = title if title.strip() else f"Draft: {theme}"
                 tags = [tag.strip() for tag in tags_input.split(',') if tag.strip()]
                 self.create_vignette(title_to_use, content, theme, tags, is_draft=True)
                 st.success("💾 Saved as draft!")
+                return True
+            
+            elif cancel_button:
                 st.rerun()
+            
+            return False
     
     def display_vignette_gallery(self, filter_by: str = "all", on_select=None):
         """Display vignettes in a gallery"""
@@ -378,85 +353,3 @@ class VignetteManager:
             </span>
             """
         return ""
-    
-    def display_vignette_detail(self, vignette_id: str, show_actions: bool = True):
-        """Display a single vignette in detail"""
-        vignette = self.get_vignette_by_id(vignette_id)
-        
-        if not vignette:
-            st.error("Vignette not found")
-            return
-        
-        # Increment views
-        self.increment_views(vignette_id)
-        
-        # Display vignette
-        st.markdown(f"# {vignette['title']}")
-        
-        # Theme and metadata
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown(f"**Theme:** {vignette['theme']}")
-        with col2:
-            created = datetime.fromisoformat(vignette['created_at']).strftime("%b %d, %Y")
-            st.markdown(f"**Created:** {created}")
-        with col3:
-            if vignette.get('published_at'):
-                published = datetime.fromisoformat(vignette['published_at']).strftime("%b %d, %Y")
-                st.markdown(f"**Published:** {published}")
-        
-        # Tags
-        if vignette.get('tags'):
-            tags_html = " ".join([f"<span style='background-color: #e0e0e0; padding: 0.2rem 0.5rem; border-radius: 10px; margin-right: 0.5rem; font-size: 0.9rem;'>{tag}</span>" 
-                                 for tag in vignette['tags']])
-            st.markdown(f"**Tags:** {tags_html}", unsafe_allow_html=True)
-        
-        st.divider()
-        
-        # Content
-        st.markdown(vignette['content'])
-        
-        st.divider()
-        
-        # Stats and actions
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Words", vignette['word_count'])
-        with col2:
-            st.metric("Views", vignette.get('views', 0))
-        with col3:
-            st.metric("Likes", vignette.get('likes', 0))
-        with col4:
-            if show_actions:
-                if st.button("❤️ Like", use_container_width=True):
-                    self.add_like(vignette_id)
-                    st.success("Thanks for the like!")
-                    st.rerun()
-        
-        # Add to main story button
-        if show_actions and st.session_state.get('logged_in'):
-            if st.button("📖 Add to Main Story", type="primary", use_container_width=True):
-                # This would add the vignette to the main biography
-                # You'll need to integrate this with your main app
-                st.success("Added to your main biography! You can find it in your sessions.")
-    
-    def get_theme_stats(self) -> Dict:
-        """Get statistics by theme"""
-        stats = {}
-        
-        for vignette in self.vignettes:
-            theme = vignette['theme']
-            if theme not in stats:
-                stats[theme] = {
-                    'count': 0,
-                    'total_words': 0,
-                    'total_views': 0,
-                    'total_likes': 0
-                }
-            
-            stats[theme]['count'] += 1
-            stats[theme]['total_words'] += vignette['word_count']
-            stats[theme]['total_views'] += vignette.get('views', 0)
-            stats[theme]['total_likes'] += vignette.get('likes', 0)
-        
-        return stats
