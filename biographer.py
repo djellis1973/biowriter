@@ -1,5 +1,4 @@
-# biographer.py – MemLife main app (cleaned & complete – February 2026)
-
+# biographer.py – MemLife main app (with vignettes & custom topics)
 import streamlit as st
 import json
 from datetime import datetime, date, timedelta
@@ -82,6 +81,63 @@ SESSIONS = [
         "word_target": 600
     }
 ]
+
+# ── Vignette Functions ────────────────────────────────────────────────────────
+def get_standard_vignette_topics():
+    return [
+        "Life Lesson",
+        "Achievement",
+        "Work Loss of Life",
+        "Illness",
+        "New Child",
+        "Marriage",
+        "Travel",
+        "Relationship",
+        "Interests",
+        "Education",
+    ]
+
+def get_user_vignettes(user_id):
+    user_data = load_user_data(user_id)
+    return user_data.get('vignettes', [])
+
+def add_vignette(user_id, topic, content):
+    user_data = load_user_data(user_id)
+    vignettes = user_data.get('vignettes', [])
+    new_vignette = {
+        "topic": topic,
+        "content": content,
+        "created_at": datetime.now().isoformat(),
+        "published": True,
+    }
+    vignettes.append(new_vignette)
+    user_data['vignettes'] = vignettes
+    save_user_data(user_id, user_data)
+
+def add_vignette_to_main_story(user_id, vignette_index, session_id, topic_override=None):
+    user_data = load_user_data(user_id)
+    vignette = user_data['vignettes'][vignette_index]
+    topic = topic_override or f"Vignette: {vignette['topic']}"
+    
+    # Add topic to session
+    responses = user_data.get("responses", {})
+    if str(session_id) not in responses:
+        responses[str(session_id)] = {
+            "title": SESSIONS[session_id-1]["title"] if session_id <= len(SESSIONS) else "Custom Session",
+            "questions": {},
+            "summary": "",
+            "completed": False,
+            "word_target": DEFAULT_WORD_TARGET,
+        }
+    
+    responses[str(session_id)]["questions"][topic] = {
+        "answer": vignette['content'],
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    user_data["responses"] = responses
+    save_user_data(user_id, user_data)
+    return True
 
 # ── Historical events – CSV only ──────────────────────────────────────────────
 def create_default_events_csv():
@@ -460,7 +516,10 @@ def logout_user():
         'user_id', 'user_account', 'logged_in', 'show_profile_setup',
         'current_session', 'current_question', 'responses',
         'session_conversations', 'data_loaded', 'show_image_upload',
-        'selected_images_for_prompt', 'image_prompt_mode'
+        'selected_images_for_prompt', 'image_prompt_mode',
+        'show_vignette_modal', 'vignette_topic', 'vignette_content',
+        'selected_vignette_type', 'current_vignette_list', 'editing_vignette_index',
+        'show_vignette_manager', 'custom_topic_input', 'show_custom_topic_modal'
     ]
     for key in keys:
         st.session_state.pop(key, None)
@@ -478,19 +537,21 @@ def load_user_data(user_id):
         if os.path.exists(filename):
             with open(filename, 'r') as f:
                 data = json.load(f)
-            if "responses" in data:
-                return data
-        return {"responses": {}, "last_loaded": datetime.now().isoformat()}
+            return data
+        return {"responses": {}, "vignettes": [], "last_loaded": datetime.now().isoformat()}
     except Exception as e:
         print(f"Error loading user data for {user_id}: {e}")
-        return {"responses": {}, "last_loaded": datetime.now().isoformat()}
+        return {"responses": {}, "vignettes": [], "last_loaded": datetime.now().isoformat()}
 
 def save_user_data(user_id, responses_data):
     filename = get_user_filename(user_id)
     try:
+        # Load existing data to preserve vignettes
+        existing_data = load_user_data(user_id)
         data_to_save = {
             "user_id": user_id,
             "responses": responses_data,
+            "vignettes": existing_data.get("vignettes", []),
             "last_saved": datetime.now().isoformat()
         }
         with open(filename, 'w') as f:
@@ -735,6 +796,116 @@ def auto_correct_text(text):
     except:
         return text
 
+# ── Vignette UI Functions ────────────────────────────────────────────────────
+def switch_to_vignette(vignette_topic, content=""):
+    """Switch to writing a vignette"""
+    st.session_state.current_question_override = vignette_topic
+    st.session_state.image_prompt_mode = False
+    if content:
+        # If there's existing content, save it
+        current_session = SESSIONS[st.session_state.current_session]
+        current_session_id = current_session["id"]
+        save_response(current_session_id, vignette_topic, content)
+    st.rerun()
+
+def switch_to_custom_topic(topic_text):
+    """Switch to a custom topic"""
+    st.session_state.current_question_override = topic_text
+    st.session_state.image_prompt_mode = False
+    st.rerun()
+
+def show_vignette_modal():
+    """Modal for creating/editing vignettes"""
+    st.markdown('<div class="vignette-modal">', unsafe_allow_html=True)
+    st.title("📝 Create Vignette")
+    
+    with st.form("vignette_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.session_state.selected_vignette_type = st.radio(
+                "Vignette Type",
+                ["Standard Topic", "Custom Topic"],
+                key="vignette_type_radio",
+                horizontal=True
+            )
+        
+        if st.session_state.selected_vignette_type == "Standard Topic":
+            standard_topics = get_standard_vignette_topics()
+            st.session_state.vignette_topic = st.selectbox(
+                "Select Topic",
+                standard_topics,
+                key="vignette_topic_select"
+            )
+        else:
+            st.session_state.vignette_topic = st.text_input(
+                "Custom Topic",
+                placeholder="E.g., 'The Day I Met My Best Friend'",
+                key="custom_topic_input"
+            )
+        
+        st.session_state.vignette_content = st.text_area(
+            "Your Story",
+            height=200,
+            placeholder="Write your story here...",
+            key="vignette_content_area"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            submit_button = st.form_submit_button("💾 Save Vignette", type="primary", use_container_width=True)
+        with col2:
+            cancel_button = st.form_submit_button("❌ Cancel", type="secondary", use_container_width=True)
+        
+        if submit_button:
+            if st.session_state.vignette_topic and st.session_state.vignette_content:
+                if st.session_state.logged_in:
+                    add_vignette(
+                        st.session_state.user_id,
+                        st.session_state.vignette_topic,
+                        st.session_state.vignette_content
+                    )
+                    st.success("Vignette saved successfully!")
+                    st.session_state.show_vignette_modal = False
+                    st.rerun()
+                else:
+                    st.error("Please log in to save vignettes")
+            else:
+                st.error("Please enter both topic and content")
+        
+        if cancel_button:
+            st.session_state.show_vignette_modal = False
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def show_custom_topic_modal():
+    """Modal for creating custom topics"""
+    st.markdown('<div class="custom-topic-modal">', unsafe_allow_html=True)
+    st.title("✨ Custom Topic")
+    
+    custom_topic = st.text_input(
+        "What would you like to write about?",
+        placeholder="E.g., 'My first day at work', 'Summer of 1999', 'Grandma's recipes'",
+        key="custom_topic_text"
+    )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Start Writing", type="primary", use_container_width=True):
+            if custom_topic:
+                switch_to_custom_topic(custom_topic)
+                st.session_state.show_custom_topic_modal = False
+                st.rerun()
+            else:
+                st.error("Please enter a topic")
+    
+    with col2:
+        if st.button("❌ Cancel", type="secondary", use_container_width=True):
+            st.session_state.show_custom_topic_modal = False
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # ── Page Config & State ───────────────────────────────────────────────────────
 st.set_page_config(
     page_title="MemLife - Your Life Timeline",
@@ -743,7 +914,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-for k, v in {
+# Session state initialization
+for key, value in {
     "logged_in": False,
     "user_id": "",
     "user_account": None,
@@ -770,10 +942,20 @@ for k, v in {
     "image_description": "",
     "streak_days": 1,
     "last_active": date.today().isoformat(),
-    "total_writing_days": 1
+    "total_writing_days": 1,
+    # Vignette states
+    "show_vignette_modal": False,
+    "vignette_topic": "",
+    "vignette_content": "",
+    "selected_vignette_type": "Standard Topic",
+    "current_vignette_list": [],
+    "editing_vignette_index": None,
+    "show_vignette_manager": False,
+    "custom_topic_input": "",
+    "show_custom_topic_modal": False
 }.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 if not st.session_state.responses:
     for session in SESSIONS:
@@ -983,163 +1165,6 @@ def show_profile_setup_modal():
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ── Core Functions ────────────────────────────────────────────────────────────
-def save_response(session_id, question, answer):
-    user_id = st.session_state.user_id
-    if not user_id or user_id == "":
-        print("DEBUG: No user_id, cannot save")
-        return False
-    print(f"DEBUG: Saving for user {user_id}, session {session_id}, question: {question[:50]}...")
-    update_streak()
-    if st.session_state.user_account:
-        word_count = len(re.findall(r'\w+', answer))
-        if "stats" not in st.session_state.user_account:
-            st.session_state.user_account["stats"] = {}
-        st.session_state.user_account["stats"]["total_words"] = st.session_state.user_account["stats"].get("total_words", 0) + word_count
-        st.session_state.user_account["stats"]["total_sessions"] = len(st.session_state.responses[session_id].get("questions", {}))
-        st.session_state.user_account["stats"]["last_active"] = datetime.now().isoformat()
-        save_account_data(st.session_state.user_account)
-    if session_id not in st.session_state.responses:
-        s = SESSIONS[session_id-1]
-        st.session_state.responses[session_id] = {
-            "title": s["title"],
-            "questions": {},
-            "summary": "",
-            "completed": False,
-            "word_target": s.get("word_target", DEFAULT_WORD_TARGET)
-        }
-    st.session_state.responses[session_id]["questions"][question] = {
-        "answer": answer,
-        "timestamp": datetime.now().isoformat()
-    }
-    if save_user_data(user_id, st.session_state.responses):
-        print(f"DEBUG: Successfully saved to JSON file for {user_id}")
-        return True
-    else:
-        print(f"DEBUG: Failed to save to JSON file for {user_id}")
-        return False
-
-def calculate_author_word_count(session_id):
-    total_words = 0
-    session_data = st.session_state.responses.get(session_id, {})
-    for question, answer_data in session_data.get("questions", {}).items():
-        if answer_data.get("answer"):
-            total_words += len(re.findall(r'\w+', answer_data["answer"]))
-    return total_words
-
-def get_progress_info(session_id):
-    current_count = calculate_author_word_count(session_id)
-    target = st.session_state.responses[session_id].get("word_target", DEFAULT_WORD_TARGET)
-    if target == 0:
-        progress_percent = 100
-        emoji = "🟢"
-        color = "#2ecc71"
-    else:
-        progress_percent = (current_count / target) * 100 if target > 0 else 100
-    if progress_percent >= 100:
-        emoji = "🟢"
-        color = "#2ecc71"
-    elif progress_percent >= 70:
-        emoji = "🟡"
-        color = "#f39c12"
-    else:
-        emoji = "🔴"
-        color = "#e74c3c"
-    remaining_words = max(0, target - current_count)
-    status_text = f"{remaining_words} words remaining" if remaining_words > 0 else "Target achieved!"
-    return {
-        "current_count": current_count,
-        "target": target,
-        "progress_percent": progress_percent,
-        "emoji": emoji,
-        "color": color,
-        "remaining_words": remaining_words,
-        "status_text": status_text
-    }
-
-def auto_correct_text(text):
-    if not text or not st.session_state.spellcheck_enabled:
-        return text
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Fix spelling and grammar mistakes in the following text. Return only the corrected text."},
-                {"role": "user", "content": text}
-            ],
-            max_tokens=len(text) + 100,
-            temperature=0.1
-        )
-        return response.choices[0].message.content
-    except:
-        return text
-
-# ── Page Setup & Main Flow ────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="MemLife - Your Life Timeline",
-    page_icon="📖",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Session state initialization
-for key, value in {
-    "logged_in": False,
-    "user_id": "",
-    "user_account": None,
-    "show_profile_setup": False,
-    "current_session": 0,
-    "current_question": 0,
-    "responses": {},
-    "session_conversations": {},
-    "editing": None,
-    "edit_text": "",
-    "ghostwriter_mode": True,
-    "spellcheck_enabled": True,
-    "editing_word_target": False,
-    "confirming_clear": None,
-    "data_loaded": False,
-    "current_question_override": None,
-    "quick_jots": [],
-    "current_jot": "",
-    "show_jots": False,
-    "historical_events_loaded": False,
-    "show_image_upload": False,
-    "image_prompt_mode": False,
-    "selected_images_for_prompt": [],
-    "image_description": "",
-    "streak_days": 1,
-    "last_active": date.today().isoformat(),
-    "total_writing_days": 1
-}.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
-
-if not st.session_state.responses:
-    for session in SESSIONS:
-        session_id = session["id"]
-        st.session_state.responses[session_id] = {
-            "title": session["title"],
-            "questions": {},
-            "summary": "",
-            "completed": False,
-            "word_target": session.get("word_target", DEFAULT_WORD_TARGET)
-        }
-        st.session_state.session_conversations[session_id] = {}
-
-if st.session_state.logged_in and st.session_state.user_id and not st.session_state.data_loaded:
-    user_data = load_user_data(st.session_state.user_id)
-    if "responses" in user_data:
-        for session_id_str, session_data in user_data["responses"].items():
-            try:
-                session_id = int(session_id_str)
-                if session_id in st.session_state.responses:
-                    if "questions" in session_data:
-                        st.session_state.responses[session_id]["questions"] = session_data["questions"]
-            except ValueError:
-                continue
-    st.session_state.data_loaded = True
-
 # ── Main App Flow ─────────────────────────────────────────────────────────────
 if st.session_state.get('show_profile_setup', False):
     show_profile_setup_modal()
@@ -1168,6 +1193,15 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# Show modals if needed
+if st.session_state.show_vignette_modal:
+    show_vignette_modal()
+    st.stop()
+
+if st.session_state.show_custom_topic_modal:
+    show_custom_topic_modal()
+    st.stop()
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     # Profile
@@ -1178,15 +1212,15 @@ with st.sidebar:
         st.caption(f"📧 {profile['email']}")
         if profile.get('birthdate'):
             st.caption(f"🎂 Born: {profile['birthdate']}")
-        try:
-            birth_year = int(profile['birthdate'].split(', ')[-1])
-            events = get_events_for_birth_year(birth_year)
-            if events:
-                uk_events = [e for e in events if e.get('region') == 'UK']
-                global_events = len(events) - len(uk_events)
-                st.caption(f"📚 {len(events)} historical events ({len(uk_events)} UK, {global_events} global)")
-        except:
-            pass
+            try:
+                birth_year = int(profile['birthdate'].split(', ')[-1])
+                events = get_events_for_birth_year(birth_year)
+                if events:
+                    uk_events = [e for e in events if e.get('region') == 'UK']
+                    global_events = len(events) - len(uk_events)
+                    st.caption(f"📚 {len(events)} historical events ({len(uk_events)} UK, {global_events} global)")
+            except:
+                pass
         else:
             st.caption("🎂 Birthdate: Not set")
         account_type = st.session_state.user_account['account_type']
@@ -1196,7 +1230,9 @@ with st.sidebar:
         st.rerun()
     if st.button("🚪 Log Out", use_container_width=True):
         logout_user()
+    
     st.divider()
+    
     # Streak
     st.subheader("🔥 Writing Streak")
     streak_emoji = get_streak_emoji(st.session_state.streak_days)
@@ -1207,6 +1243,7 @@ with st.sidebar:
         st.success("🏆 Weekly Writer!")
     if st.session_state.streak_days >= 30:
         st.success("🌟 Monthly Master!")
+    
     # Photo Gallery
     st.divider()
     st.subheader("🖼️ Photo Gallery")
@@ -1219,6 +1256,7 @@ with st.sidebar:
                 st.rerun()
         else:
             st.info("No photos yet")
+    
     # Quick Capture
     st.divider()
     st.subheader("⚡ Quick Capture")
@@ -1252,6 +1290,7 @@ with st.sidebar:
             if st.button("View Quick Notes", key="view_jots_btn"):
                 st.session_state.show_jots = True
                 st.rerun()
+    
     # Interview Style
     st.divider()
     st.header("✍️ Interview Style")
@@ -1276,6 +1315,7 @@ with st.sidebar:
         st.caption("With historical context & photo integration")
     else:
         st.info("Standard mode active")
+    
     # Historical Context
     st.divider()
     st.header("📜 Historical Context")
@@ -1302,6 +1342,53 @@ with st.sidebar:
             st.info("Add birthdate to see historical context")
     else:
         st.info("Add your birthdate to enable historical context")
+    
+    # ── VIGNETTES & CUSTOM TOPICS ────────────────────────────────────────────
+    st.divider()
+    st.header("✨ Vignettes & Custom Topics")
+    
+    # Quick vignette buttons
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📝 New Vignette", use_container_width=True):
+            st.session_state.show_vignette_modal = True
+            st.rerun()
+    
+    with col2:
+        if st.button("💡 Custom Topic", use_container_width=True):
+            st.session_state.show_custom_topic_modal = True
+            st.rerun()
+    
+    # Show saved vignettes
+    if st.session_state.logged_in:
+        user_vignettes = get_user_vignettes(st.session_state.user_id)
+        if user_vignettes:
+            with st.expander(f"📚 Your Vignettes ({len(user_vignettes)})", expanded=False):
+                for idx, vignette in enumerate(user_vignettes[:5]):  # Show first 5
+                    topic = vignette.get("topic", "Untitled")
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"**{topic}**")
+                    with col2:
+                        if st.button("✏️", key=f"edit_v_{idx}"):
+                            switch_to_vignette(topic, vignette.get("content", ""))
+                    st.caption(f"Created: {vignette.get('created_at', '')[:10]}")
+                    if idx < len(user_vignettes[:5]) - 1:
+                        st.divider()
+            
+            if len(user_vignettes) > 5:
+                if st.button("View All Vignettes", key="view_all_vignettes"):
+                    st.session_state.show_vignette_manager = True
+                    st.rerun()
+    
+    # Standard vignette topics
+    standard_topics = get_standard_vignette_topics()
+    if standard_topics:
+        with st.expander("📋 Standard Vignette Topics", expanded=False):
+            for topic in standard_topics:
+                if st.button(f"📝 {topic}", key=f"std_v_{topic}", use_container_width=True):
+                    switch_to_vignette(topic)
+    
     # Session Navigation
     st.divider()
     st.header("📖 Sessions")
@@ -1326,47 +1413,86 @@ with st.sidebar:
             st.session_state.current_question_override = None
             st.session_state.image_prompt_mode = False
             st.rerun()
+    
     # Topic Navigation
     st.divider()
-    st.subheader("Topic Navigation")
+    st.subheader("📝 Topic Navigation")
     current_session = SESSIONS[st.session_state.current_session]
-    st.markdown(f'<div class="question-counter">Topic {st.session_state.current_question + 1} of {len(current_session["questions"])}</div>', unsafe_allow_html=True)
+    current_topic = st.session_state.current_question + 1
+    total_topics = len(current_session["questions"])
+    
+    st.markdown(f'<div class="question-counter">Topic {current_topic} of {total_topics}</div>', unsafe_allow_html=True)
+    
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("← Previous Topic", disabled=st.session_state.current_question == 0, key="prev_q_sidebar"):
-            st.session_state.current_question = max(0, st.session_state.current_question - 1)
-            st.session_state.editing = None
-            st.session_state.current_question_override = None
-            st.session_state.image_prompt_mode = False
-            st.rerun()
+        prev_disabled = st.session_state.current_question == 0
+        if st.button("← Previous", 
+                    disabled=prev_disabled, 
+                    key="prev_topic_sidebar",
+                    use_container_width=True):
+            if not prev_disabled:
+                st.session_state.current_question = st.session_state.current_question - 1
+                st.session_state.editing = None
+                st.session_state.current_question_override = None
+                st.session_state.image_prompt_mode = False
+                st.rerun()
+    
     with col2:
-        if st.button("Next Topic →", disabled=st.session_state.current_question >= len(current_session["questions"]) - 1, key="next_q_sidebar"):
-            st.session_state.current_question = min(len(current_session["questions"]) - 1, st.session_state.current_question + 1)
-            st.session_state.editing = None
-            st.session_state.current_question_override = None
-            st.session_state.image_prompt_mode = False
-            st.rerun()
+        next_disabled = st.session_state.current_question >= total_topics - 1
+        if st.button("Next →", 
+                    disabled=next_disabled, 
+                    key="next_topic_sidebar",
+                    use_container_width=True):
+            if not next_disabled:
+                st.session_state.current_question = st.session_state.current_question + 1
+                st.session_state.editing = None
+                st.session_state.current_question_override = None
+                st.session_state.image_prompt_mode = False
+                st.rerun()
+    
+    # Session Navigation
     st.divider()
-    st.subheader("Session Navigation")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("← Previous Session", disabled=st.session_state.current_session == 0, key="prev_session_sidebar"):
-            st.session_state.current_session = max(0, st.session_state.current_session - 1)
-            st.session_state.current_question = 0
-            st.session_state.editing = None
-            st.session_state.current_question_override = None
-            st.session_state.image_prompt_mode = False
-            st.rerun()
-    with col2:
-        if st.button("Next Session →", disabled=st.session_state.current_session >= len(SESSIONS)-1, key="next_session_sidebar"):
-            st.session_state.current_session = min(len(SESSIONS)-1, st.session_state.current_session + 1)
-            st.session_state.current_question = 0
-            st.session_state.editing = None
-            st.session_state.current_question_override = None
-            st.session_state.image_prompt_mode = False
-            st.rerun()
+    st.subheader("🔀 Session Navigation")
+    nav_col1, nav_col2 = st.columns(2)
+    
+    with nav_col1:
+        prev_session_disabled = st.session_state.current_session == 0
+        if st.button("← Previous Session", 
+                    disabled=prev_session_disabled,
+                    key="prev_session_sidebar",
+                    use_container_width=True):
+            if not prev_session_disabled:
+                st.session_state.current_session = st.session_state.current_session - 1
+                st.session_state.current_question = 0
+                st.session_state.editing = None
+                st.session_state.current_question_override = None
+                st.session_state.image_prompt_mode = False
+                st.rerun()
+    
+    with nav_col2:
+        next_session_disabled = st.session_state.current_session >= len(SESSIONS) - 1
+        if st.button("Next Session →", 
+                    disabled=next_session_disabled,
+                    key="next_session_sidebar",
+                    use_container_width=True):
+            if not next_session_disabled:
+                st.session_state.current_session = st.session_state.current_session + 1
+                st.session_state.current_question = 0
+                st.session_state.editing = None
+                st.session_state.current_question_override = None
+                st.session_state.image_prompt_mode = False
+                st.rerun()
+    
+    # Session Selector
     session_options = [f"Session {s['id']}: {s['title']}" for s in SESSIONS]
-    selected_session = st.selectbox("Jump to session:", session_options, index=st.session_state.current_session, key="session_selectbox")
+    selected_session = st.selectbox(
+        "Jump to session:",
+        session_options, 
+        index=st.session_state.current_session, 
+        key="session_selectbox",
+        label_visibility="collapsed"
+    )
+    
     if session_options.index(selected_session) != st.session_state.current_session:
         st.session_state.current_session = session_options.index(selected_session)
         st.session_state.current_question = 0
@@ -1374,12 +1500,15 @@ with st.sidebar:
         st.session_state.current_question_override = None
         st.session_state.image_prompt_mode = False
         st.rerun()
+    
     st.divider()
+    
     # Export Options
     st.subheader("📤 Export Options")
     total_answers = sum(len(session.get("questions", {})) for session in st.session_state.responses.values())
     total_images = get_total_user_images(st.session_state.user_id) if st.session_state.logged_in else 0
     st.caption(f"Total answers: {total_answers} • Total photos: {total_images}")
+    
     if st.session_state.logged_in and st.session_state.user_id:
         export_data = {}
         for session in SESSIONS:
@@ -1390,6 +1519,7 @@ with st.sidebar:
                     "title": session["title"],
                     "questions": session_data["questions"]
                 }
+        
         image_data = {}
         for session in SESSIONS:
             session_id = session["id"]
@@ -1403,6 +1533,7 @@ with st.sidebar:
                         "upload_date": img["upload_date"],
                         "session_id": session_id
                     })
+        
         if export_data or image_data:
             complete_data = {
                 "user": st.session_state.user_id,
@@ -1417,6 +1548,7 @@ with st.sidebar:
             json_data = json.dumps(complete_data, indent=2)
             encoded_data = base64.b64encode(json_data.encode()).decode()
             publisher_url = f"{LOGO_URL.replace('logo.png', '')}deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/?data={encoded_data}"
+            
             col1, col2 = st.columns(2)
             with col1:
                 stories_only = {
@@ -1442,6 +1574,7 @@ with st.sidebar:
                     use_container_width=True,
                     key="download_complete_btn"
                 )
+            
             if total_images > 0:
                 st.divider()
                 st.write("**📸 Photo Export**")
@@ -1468,6 +1601,7 @@ with st.sidebar:
                             use_container_width=True,
                             key="download_image_catalog"
                         )
+            
             st.divider()
             st.markdown(f'''
             <a href="{publisher_url}" target="_blank">
@@ -1481,7 +1615,9 @@ with st.sidebar:
             st.warning("No data to export yet! Start by answering some questions or uploading photos.")
     else:
         st.warning("Please log in to export your data.")
+    
     st.divider()
+    
     # Clear Data
     st.subheader("⚠️ Clear Data")
     if st.session_state.confirming_clear == "session":
@@ -1537,6 +1673,7 @@ with st.sidebar:
 # ── Main Content ──────────────────────────────────────────────────────────────
 current_session = SESSIONS[st.session_state.current_session]
 current_session_id = current_session["id"]
+
 if st.session_state.current_question_override:
     current_question_text = st.session_state.current_question_override
     question_source = "custom"
@@ -1545,40 +1682,65 @@ else:
     question_source = "regular"
 
 st.markdown("---")
+
+# Main navigation header with back buttons
 col1, col2, col3 = st.columns([2, 1, 1])
+
 with col1:
     st.subheader(f"Session {current_session_id}: {current_session['title']}")
     session_responses = len(st.session_state.responses.get(current_session_id, {}).get("questions", {}))
     total_questions = len(current_session["questions"])
     st.caption(f"📝 {session_responses}/{total_questions} topics answered")
+    
     if st.session_state.logged_in:
         session_images = get_session_images(st.session_state.user_id, current_session_id)
         if session_images:
             st.caption(f"📸 {len(session_images)} photos in this session")
+    
     if st.session_state.ghostwriter_mode:
         st.markdown('<p class="ghostwriter-tag">Professional Ghostwriter Mode (with historical context & photo integration)</p>', unsafe_allow_html=True)
+
 with col2:
     if question_source == "custom":
-        st.markdown(f'<div class="question-counter" style="margin-top: 1rem; color: #ff6b00;">✨ Custom Prompt</div>', unsafe_allow_html=True)
+        if st.session_state.current_question_override.startswith("Vignette:"):
+            st.markdown(f'<div class="question-counter" style="margin-top: 1rem; color: #9b59b6;">📝 Vignette</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="question-counter" style="margin-top: 1rem; color: #ff6b00;">✨ Custom Topic</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<div class="question-counter" style="margin-top: 1rem;">Topic {st.session_state.current_question + 1} of {len(current_session["questions"])}</div>', unsafe_allow_html=True)
+        current_topic = st.session_state.current_question + 1
+        total_topics = len(current_session["questions"])
+        st.markdown(f'<div class="question-counter" style="margin-top: 1rem;">Topic {current_topic} of {total_topics}</div>', unsafe_allow_html=True)
+
 with col3:
+    # Main content back/next buttons
     nav_col1, nav_col2 = st.columns(2)
     with nav_col1:
-        if st.button("← Previous Topic", disabled=st.session_state.current_question == 0, key="prev_q_quick", use_container_width=True):
-            st.session_state.current_question = max(0, st.session_state.current_question - 1)
-            st.session_state.editing = None
-            st.session_state.current_question_override = None
-            st.session_state.image_prompt_mode = False
-            st.rerun()
+        prev_disabled = st.session_state.current_question == 0
+        if st.button("← Previous Topic", 
+                    disabled=prev_disabled,
+                    key="main_prev_btn",
+                    use_container_width=True):
+            if not prev_disabled:
+                st.session_state.current_question -= 1
+                st.session_state.editing = None
+                st.session_state.current_question_override = None
+                st.session_state.image_prompt_mode = False
+                st.rerun()
+    
     with nav_col2:
-        if st.button("Next Topic →", disabled=st.session_state.current_question >= len(current_session["questions"]) - 1, key="next_q_quick", use_container_width=True):
-            st.session_state.current_question = min(len(current_session["questions"]) - 1, st.session_state.current_question + 1)
-            st.session_state.editing = None
-            st.session_state.current_question_override = None
-            st.session_state.image_prompt_mode = False
-            st.rerun()
+        next_disabled = st.session_state.current_question >= len(current_session["questions"]) - 1
+        if st.button("Next Topic →", 
+                    disabled=next_disabled,
+                    key="main_next_btn",
+                    use_container_width=True):
+            if not next_disabled:
+                st.session_state.current_question += 1
+                st.session_state.editing = None
+                st.session_state.current_question_override = None
+                st.session_state.image_prompt_mode = False
+                st.rerun()
 
+# Question display
 st.markdown(f"""
 <div class="question-box">
 {current_question_text}
@@ -1593,12 +1755,14 @@ with image_controls_container:
     if st.session_state.logged_in:
         session_images = get_session_images(st.session_state.user_id, current_session_id)
         has_images = len(session_images) > 0
+    
     img_col1, img_col2 = st.columns(2)
     with img_col1:
         button_text = "📷 Add Photos" if not st.session_state.show_image_upload else "📷 Hide Photos"
         if st.button(button_text, key="toggle_image_upload", use_container_width=True):
             st.session_state.show_image_upload = not st.session_state.show_image_upload
             st.rerun()
+    
     with img_col2:
         if has_images:
             if st.button("✨ Tell Photo Stories", key="photo_stories_btn", use_container_width=True, type="primary"):
@@ -1606,6 +1770,7 @@ with image_controls_container:
                 st.rerun()
         else:
             st.button("✨ Tell Photo Stories", key="disabled_photo_stories", use_container_width=True, disabled=True)
+    
     if st.session_state.show_image_upload and st.session_state.logged_in:
         st.markdown("---")
         st.subheader("📤 Upload Photos for This Memory")
@@ -1615,12 +1780,14 @@ with image_controls_container:
             accept_multiple_files=True,
             key=f"simple_uploader_{current_session_id}"
         )
+        
         if uploaded_files:
             description = st.text_input(
                 "Add a description for these photos (optional):",
                 placeholder="E.g., 'Family vacation, 1985'",
                 key=f"simple_desc_{current_session_id}"
             )
+            
             if st.button("Upload Photos", key=f"simple_upload_btn_{current_session_id}", type="primary"):
                 success_count = 0
                 error_count = 0
@@ -1631,11 +1798,13 @@ with image_controls_container:
                     else:
                         error_count += 1
                         st.error(f"Error uploading {uploaded_file.name}: {result['error']}")
+                
                 if success_count > 0:
                     st.success(f"Successfully uploaded {success_count} photo(s)!")
                     st.rerun()
                 if error_count > 0:
                     st.warning(f"Failed to upload {error_count} photo(s).")
+        
         session_images = get_session_images(st.session_state.user_id, current_session_id)
         if session_images:
             st.divider()
@@ -1646,7 +1815,9 @@ with image_controls_container:
                 st.success(f"✅ Selected {len(selected_images)} photo(s)! Click 'Tell Photo Stories' to write about them.")
             else:
                 st.info("No photos uploaded for this session yet.")
+    
     st.markdown("---")
+    
     if st.session_state.image_prompt_mode:
         if st.session_state.selected_images_for_prompt:
             selected_count = len(st.session_state.selected_images_for_prompt)
@@ -1654,6 +1825,7 @@ with image_controls_container:
             st.info("The AI will ask you specific questions about each photo!")
         else:
             st.info("📸 **Photo Story Mode**: Select photos from the gallery to write about them")
+    
     if st.session_state.user_account and st.session_state.user_account['profile'].get('birthdate'):
         try:
             birth_year = int(st.session_state.user_account['profile']['birthdate'].split(', ')[-1])
@@ -1664,6 +1836,7 @@ with image_controls_container:
                 st.info(f"📜 **Historical Context Enabled:** Your responses will be enriched with {len(events)} historical events ({uk_count} UK, {global_count} global) from your lifetime.")
         except:
             pass
+    
     if question_source == "regular":
         st.markdown(f"""
         <div class="chapter-guidance">
@@ -1673,7 +1846,11 @@ with image_controls_container:
     elif st.session_state.image_prompt_mode:
         st.info("✨ **Photo Story Mode** - The AI will ask you questions about your selected photos. Describe what you see, who's in them, and what memories they bring up!")
     else:
-        st.info("✨ **Custom Prompt** - Write about whatever comes to mind!")
+        if st.session_state.current_question_override.startswith("Vignette:"):
+            st.info("📝 **Vignette Mode** - Write a short, focused story about a specific moment or memory.")
+        else:
+            st.info("✨ **Custom Topic** - Write about whatever comes to mind!")
+    
     if question_source == "regular":
         session_data = st.session_state.responses.get(current_session_id, {})
         topics_answered = len(session_data.get("questions", {}))
@@ -1709,6 +1886,14 @@ if not conversation:
                 welcome_msg += f"""<div style='font-size: 1.1rem; margin-top: 1.5rem; color: #4CAF50; background-color: #e8f5e9; padding: 1rem; border-radius: 8px; border-left: 4px solid #4CAF50;'>
                 📸 <strong>Photo Story Mode:</strong> You've selected {len(st.session_state.selected_images_for_prompt)} photo(s) to write about. I'll ask you questions about each photo to help tell their stories.
                 </div>"""
+            elif question_source == "custom" and st.session_state.current_question_override.startswith("Vignette:"):
+                welcome_msg += f"""<div style='font-size: 1.1rem; margin-top: 1.5rem; color: #9b59b6; background-color: #f4ecf7; padding: 1rem; border-radius: 8px; border-left: 4px solid #9b59b6;'>
+                📝 <strong>Vignette Mode:</strong> Write a short, focused story about this specific moment or memory.
+                </div>"""
+            elif question_source == "custom":
+                welcome_msg += f"""<div style='font-size: 1.1rem; margin-top: 1.5rem; color: #ff6b00; background-color: #fff5e6; padding: 1rem; border-radius: 8px; border-left: 4px solid #ff6b00;'>
+                ✨ <strong>Custom Topic:</strong> Write about whatever comes to mind!
+                </div>"""
             else:
                 welcome_msg += f"""<div style='font-size: 1.1rem; margin-top: 1.5rem; color: #555;'>
                 Take your time with this—good biographies are built from thoughtful reflection.
@@ -1717,6 +1902,10 @@ if not conversation:
         conv_text = f"Let's explore this topic in detail: {current_question_text}\n\n"
         if st.session_state.image_prompt_mode:
             conv_text += f"📸 Photo Story Mode: You've selected {len(st.session_state.selected_images_for_prompt)} photo(s) to write about. I'll ask you questions about each photo to help tell their stories."
+        elif question_source == "custom" and st.session_state.current_question_override.startswith("Vignette:"):
+            conv_text += "📝 Vignette Mode: Write a short, focused story about this specific moment or memory."
+        elif question_source == "custom":
+            conv_text += "✨ Custom Topic: Write about whatever comes to mind!"
         else:
             conv_text += "Take your time with this—good biographies are built from thoughtful reflection."
         conversation.append({"role": "assistant", "content": conv_text})
@@ -1795,6 +1984,8 @@ with input_container:
                     ai_response = response.choices[0].message.content
                     if st.session_state.image_prompt_mode:
                         ai_response += f"\n\n📸 **Photo Note:** Keep describing your photos! Who, what, where, when, and why?"
+                    elif question_source == "custom" and st.session_state.current_question_override.startswith("Vignette:"):
+                        ai_response += f"\n\n📝 **Vignette Note:** This is a great start for your vignette! Keep adding details about this specific memory."
                     st.markdown(ai_response)
                     conversation.append({"role": "assistant", "content": ai_response})
                 except Exception as e:
@@ -1972,10 +2163,16 @@ if st.session_state.user_account:
     profile = st.session_state.user_account['profile']
     account_age = (datetime.now() - datetime.fromisoformat(st.session_state.user_account['created_at'])).days
     total_images = get_total_user_images(st.session_state.user_id) if st.session_state.logged_in else 0
+    if st.session_state.logged_in:
+        user_vignettes = get_user_vignettes(st.session_state.user_id)
+        vignette_count = len(user_vignettes)
+    else:
+        vignette_count = 0
+    
     footer_info = f"""
 MemLife Timeline • 👤 {profile['first_name']} {profile['last_name']} • 📧 {profile['email']} •
 🎂 {profile.get('birthdate', 'Not specified')} • 🔥 {st.session_state.streak_days} day streak •
-📷 {total_images} photos • 📅 Account Age: {account_age} days
+📷 {total_images} photos • 📝 {vignette_count} vignettes • 📅 Account Age: {account_age} days
 """
     st.caption(footer_info)
 else:
