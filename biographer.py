@@ -9,7 +9,7 @@ import os
 import re
 import hashlib
 import smtplib
-from email.mime.text import MIMEText
+from email.mime.text import MIMETextf
 from email.mime.multipart import MIMEMultipart
 import secrets
 import string
@@ -33,6 +33,7 @@ except FileNotFoundError:
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
+DEFAULT_WORD_TARGET = 500
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
 SESSIONS = [
