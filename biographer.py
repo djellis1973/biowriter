@@ -1,5 +1,4 @@
 # biographer.py – MemLife main app (cleaned & complete – February 2026)
-# Removed: fallback prompts, huge hardcoded events list, inline CSS block
 
 import streamlit as st
 import json
@@ -15,7 +14,6 @@ import secrets
 import string
 import base64
 import pandas as pd
-import shutil
 import uuid
 from PIL import Image
 import io
@@ -33,7 +31,6 @@ except FileNotFoundError:
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
-DEFAULT_WORD_TARGET = 500
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
 SESSIONS = [
@@ -84,12 +81,11 @@ SESSIONS = [
     }
 ]
 
-# ── Historical events – CSV only (empty starter if missing) ───────────────────
+# ── Historical events – CSV only ──────────────────────────────────────────────
 def create_default_events_csv():
     if not os.path.exists("historical_events.csv"):
         with open("historical_events.csv", "w", encoding="utf-8") as f:
             f.write("year_range,event,category,region,description\n")
-        st.info("Created empty historical_events.csv – add your events there.")
 
 def load_historical_events():
     create_default_events_csv()
@@ -100,8 +96,7 @@ def load_historical_events():
             decade = str(row['year_range']).strip()
             events_by_decade.setdefault(decade, []).append(row.to_dict())
         return events_by_decade
-    except Exception as e:
-        st.error(f"Could not load historical events: {e}")
+    except:
         return {}
 
 def get_events_for_birth_year(birth_year):
@@ -122,7 +117,7 @@ def get_events_for_birth_year(birth_year):
     relevant.sort(key=lambda x: x.get('year_range', '9999'))
     return relevant[:20]
 
-# ── Image Manager Functions ───────────────────────────────────────────────────
+# ── Image Manager ─────────────────────────────────────────────────────────────
 def get_user_image_folder(user_id):
     folder_path = f"user_images/{user_id}"
     os.makedirs(folder_path, exist_ok=True)
@@ -136,30 +131,20 @@ def get_session_image_folder(user_id, session_id):
 def save_image_metadata(user_id, session_id, image_info):
     metadata_file = f"user_images/{user_id}/image_metadata.json"
     try:
-        if os.path.exists(metadata_file):
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-        else:
-            metadata = {}
-        if str(session_id) not in metadata:
-            metadata[str(session_id)] = []
-        metadata[str(session_id)].append(image_info)
-        with open(metadata_file, 'w') as f:
-            json.dump(metadata, f, indent=2)
+        metadata = json.load(open(metadata_file, 'r')) if os.path.exists(metadata_file) else {}
+        metadata.setdefault(str(session_id), []).append(image_info)
+        json.dump(metadata, open(metadata_file, 'w'), indent=2)
         return True
     except Exception as e:
-        print(f"Error saving image metadata: {e}")
+        print(f"Error saving metadata: {e}")
         return False
 
 def get_session_images(user_id, session_id):
     metadata_file = f"user_images/{user_id}/image_metadata.json"
     if os.path.exists(metadata_file):
         try:
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-            session_key = str(session_id)
-            if session_key in metadata:
-                return metadata[session_key]
+            metadata = json.load(open(metadata_file, 'r'))
+            return metadata.get(str(session_id), [])
         except:
             pass
     return []
@@ -199,14 +184,13 @@ def save_uploaded_image_simple(uploaded_file, user_id, session_id, description="
         save_image_metadata(user_id, session_id, image_info)
         return {"success": True, "image_info": image_info, "message": f"Image '{original_filename}' uploaded successfully!"}
     except Exception as e:
-        return {"success": False, "error": f"Error processing image: {str(e)}"}
+        return {"success": False, "error": str(e)}
 
 def delete_image_simple(user_id, session_id, image_id):
     metadata_file = f"user_images/{user_id}/image_metadata.json"
     try:
         if os.path.exists(metadata_file):
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
+            metadata = json.load(open(metadata_file, 'r'))
             session_key = str(session_id)
             if session_key in metadata:
                 for i, img in enumerate(metadata[session_key]):
@@ -216,12 +200,11 @@ def delete_image_simple(user_id, session_id, image_id):
                             if path and os.path.exists(path):
                                 os.remove(path)
                         metadata[session_key].pop(i)
-                        with open(metadata_file, 'w') as f:
-                            json.dump(metadata, f, indent=2)
+                        json.dump(metadata, open(metadata_file, 'w'), indent=2)
                         return {"success": True, "message": "Image deleted successfully"}
         return {"success": False, "error": "Image not found"}
     except Exception as e:
-        return {"success": False, "error": f"Error deleting image: {str(e)}"}
+        return {"success": False, "error": str(e)}
 
 def get_image_data_url(image_path):
     try:
@@ -242,17 +225,18 @@ def display_simple_gallery(user_id, session_id):
     for idx, img_info in enumerate(images):
         col1, col2 = st.columns([3, 1])
         with col1:
-            if os.path.exists(img_info["paths"]["thumbnail"]):
-                data_url = get_image_data_url(img_info["paths"]["thumbnail"])
+            thumb = img_info["paths"].get("thumbnail")
+            if thumb and os.path.exists(thumb):
+                data_url = get_image_data_url(thumb)
                 if data_url:
                     st.markdown(f'<img src="{data_url}" style="width:100%; max-height:200px; object-fit:cover; border-radius:8px;">', unsafe_allow_html=True)
             st.caption(img_info['original_filename'])
             if img_info.get('description'):
                 st.caption(f"📝 {img_info['description']}")
         with col2:
-            if st.button("✨ Use", key=f"select_{img_info['id']}", help="Use this photo to create prompts"):
+            if st.button("✨ Use", key=f"select_{img_info['id']}"):
                 selected_images.append(img_info)
-            if st.button("🗑️", key=f"delete_{img_info['id']}", help="Delete this photo"):
+            if st.button("🗑️", key=f"delete_{img_info['id']}"):
                 result = delete_image_simple(user_id, session_id, img_info["id"])
                 if result["success"]:
                     st.success("Photo deleted")
@@ -272,7 +256,7 @@ def get_images_for_prompt_simple(user_id, session_id):
             prompt_text += f" - {img['description']}"
         prompt_text += "\n"
     prompt_text += """
-**Use these photos to ask specific questions about:
+**Use these photos to ask specific questions about:**
 1. Who is in the photo?
 2. Where was it taken?
 3. When was it taken?
@@ -286,12 +270,8 @@ def get_total_user_images(user_id):
     metadata_file = f"user_images/{user_id}/image_metadata.json"
     if os.path.exists(metadata_file):
         try:
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-            total = 0
-            for session_id, images in metadata.items():
-                total += len(images)
-            return total
+            metadata = json.load(open(metadata_file, 'r'))
+            return sum(len(images) for images in metadata.values())
         except:
             pass
     return 0
@@ -305,11 +285,10 @@ EMAIL_CONFIG = {
     "use_tls": True
 }
 
-# ── Authentication & Account Functions ────────────────────────────────────────
+# ── Authentication Functions ──────────────────────────────────────────────────
 def generate_password(length=12):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
-    password = ''.join(secrets.choice(alphabet) for _ in range(length))
-    return password
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -354,37 +333,27 @@ def create_user_account(user_data, password=None):
             }
         }
         save_account_data(user_record)
-        return {
-            "success": True,
-            "user_id": user_id,
-            "password": password,
-            "user_record": user_record
-        }
+        return {"success": True, "user_id": user_id, "password": password, "user_record": user_record}
     except Exception as e:
-        print(f"Error creating user account: {e}")
+        print(f"Error creating account: {e}")
         return {"success": False, "error": str(e)}
 
 def save_account_data(user_record):
     try:
-        filename = f"accounts/{user_record['user_id']}_account.json"
         os.makedirs("accounts", exist_ok=True)
-        with open(filename, 'w') as f:
-            json.dump(user_record, f, indent=2)
+        filename = f"accounts/{user_record['user_id']}_account.json"
+        json.dump(user_record, open(filename, 'w'), indent=2)
         update_accounts_index(user_record)
         return True
     except Exception as e:
-        print(f"Error saving account data: {e}")
+        print(f"Error saving account: {e}")
         return False
 
 def update_accounts_index(user_record):
     try:
         index_file = "accounts/accounts_index.json"
         os.makedirs("accounts", exist_ok=True)
-        if os.path.exists(index_file):
-            with open(index_file, 'r') as f:
-                index = json.load(f)
-        else:
-            index = {}
+        index = json.load(open(index_file, 'r')) if os.path.exists(index_file) else {}
         index[user_record['user_id']] = {
             "email": user_record['email'],
             "first_name": user_record['profile']['first_name'],
@@ -392,48 +361,40 @@ def update_accounts_index(user_record):
             "created_at": user_record['created_at'],
             "account_type": user_record['account_type']
         }
-        with open(index_file, 'w') as f:
-            json.dump(index, f, indent=2)
+        json.dump(index, open(index_file, 'w'), indent=2)
         return True
     except Exception as e:
-        print(f"Error updating accounts index: {e}")
+        print(f"Error updating index: {e}")
         return False
 
 def get_account_data(user_id=None, email=None):
     try:
+        os.makedirs("accounts", exist_ok=True)
         if user_id:
             filename = f"accounts/{user_id}_account.json"
             if os.path.exists(filename):
-                with open(filename, 'r') as f:
-                    return json.load(f)
-        elif email:
+                return json.load(open(filename, 'r'))
+        if email:
             email = email.lower().strip()
             index_file = "accounts/accounts_index.json"
             if os.path.exists(index_file):
-                with open(index_file, 'r') as f:
-                    index = json.load(f)
-                for uid, user_data in index.items():
-                    if user_data.get("email", "").lower() == email:
+                index = json.load(open(index_file, 'r'))
+                for uid, data in index.items():
+                    if data.get("email", "").lower() == email:
                         filename = f"accounts/{uid}_account.json"
                         if os.path.exists(filename):
-                            with open(filename, 'r') as f:
-                                return json.load(f)
+                            return json.load(open(filename, 'r'))
     except Exception as e:
-        print(f"Error loading account data: {e}")
+        print(f"Error loading account: {e}")
     return None
 
 def authenticate_user(email, password):
     try:
-        account_data = get_account_data(email=email)
-        if account_data:
-            if verify_password(account_data['password_hash'], password):
-                account_data['last_login'] = datetime.now().isoformat()
-                save_account_data(account_data)
-                return {
-                    "success": True,
-                    "user_id": account_data['user_id'],
-                    "user_record": account_data
-                }
+        account = get_account_data(email=email)
+        if account and verify_password(account['password_hash'], password):
+            account['last_login'] = datetime.now().isoformat()
+            save_account_data(account)
+            return {"success": True, "user_id": account['user_id'], "user_record": account}
         return {"success": False, "error": "Invalid email or password"}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -441,7 +402,7 @@ def authenticate_user(email, password):
 def send_welcome_email(user_data, credentials):
     try:
         if not EMAIL_CONFIG['sender_email'] or not EMAIL_CONFIG['sender_password']:
-            print("Email not configured - skipping email send")
+            print("Email not configured")
             return False
         msg = MIMEMultipart()
         msg['From'] = EMAIL_CONFIG['sender_email']
@@ -449,10 +410,10 @@ def send_welcome_email(user_data, credentials):
         msg['Subject'] = "Welcome to MemLife - Your Account Details"
         body = f"""
         <html>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <body style="font-family: Arial; line-height: 1.6; color: #333;">
         <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
             <h2 style="color: #2c3e50;">Welcome to MemLife, {user_data['first_name']}!</h2>
-            <p>Thank you for creating your account. We're excited to help you build your life timeline.</p>
+            <p>Thank you for creating your account.</p>
             <div style="background-color: #f8f9fa; border-left: 4px solid #3498db; padding: 15px; margin: 20px 0;">
                 <h3 style="color: #2c3e50; margin-top: 0;">Your Account Details:</h3>
                 <p><strong>Account ID:</strong> {credentials['user_id']}</p>
@@ -493,19 +454,18 @@ def send_welcome_email(user_data, credentials):
         return False
 
 def logout_user():
-    keys_to_clear = [
+    keys = [
         'user_id', 'user_account', 'logged_in', 'show_profile_setup',
         'current_session', 'current_question', 'responses',
         'session_conversations', 'data_loaded', 'show_image_upload',
         'selected_images_for_prompt', 'image_prompt_mode'
     ]
-    for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
+    for key in keys:
+        st.session_state.pop(key, None)
     st.query_params.clear()
     st.rerun()
 
-# ── JSON Storage ──────────────────────────────────────────────────────────────
+# ── Storage & Streak ──────────────────────────────────────────────────────────
 def get_user_filename(user_id):
     filename_hash = hashlib.md5(user_id.encode()).hexdigest()[:8]
     return f"user_data_{filename_hash}.json"
@@ -539,7 +499,6 @@ def save_user_data(user_id, responses_data):
         print(f"Error saving user data for {user_id}: {e}")
         return False
 
-# ── Streak & Jot ──────────────────────────────────────────────────────────────
 def update_streak():
     if "streak_days" not in st.session_state:
         st.session_state.streak_days = 1
@@ -596,15 +555,14 @@ def save_jot(text, estimated_year=None):
 # ── Prompt Builder ────────────────────────────────────────────────────────────
 def get_system_prompt():
     current_session = SESSIONS[st.session_state.current_session]
-    if st.session_state.current_question_override:
-        current_question = st.session_state.current_question_override
-    else:
-        current_question = current_session["questions"][st.session_state.current_question]
+    current_question = (
+        st.session_state.current_question_override
+        or current_session["questions"][st.session_state.current_question]
+    )
     historical_context = ""
     if st.session_state.user_account and st.session_state.user_account['profile'].get('birthdate'):
         try:
-            birthdate = st.session_state.user_account['profile']['birthdate']
-            birth_year = int(birthdate.split(', ')[-1])
+            birth_year = int(st.session_state.user_account['profile']['birthdate'].split(', ')[-1])
             events = get_events_for_birth_year(birth_year)
             if events:
                 context_lines = []
@@ -775,7 +733,7 @@ def auto_correct_text(text):
     except:
         return text
 
-# ── Page Config & State Init ──────────────────────────────────────────────────
+# ── Page Config & State ───────────────────────────────────────────────────────
 st.set_page_config(
     page_title="MemLife - Your Life Timeline",
     page_icon="📖",
@@ -783,6 +741,346 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+for k, v in {
+    "logged_in": False,
+    "user_id": "",
+    "user_account": None,
+    "show_profile_setup": False,
+    "current_session": 0,
+    "current_question": 0,
+    "responses": {},
+    "session_conversations": {},
+    "editing": None,
+    "edit_text": "",
+    "ghostwriter_mode": True,
+    "spellcheck_enabled": True,
+    "editing_word_target": False,
+    "confirming_clear": None,
+    "data_loaded": False,
+    "current_question_override": None,
+    "quick_jots": [],
+    "current_jot": "",
+    "show_jots": False,
+    "historical_events_loaded": False,
+    "show_image_upload": False,
+    "image_prompt_mode": False,
+    "selected_images_for_prompt": [],
+    "image_description": "",
+    "streak_days": 1,
+    "last_active": date.today().isoformat(),
+    "total_writing_days": 1
+}.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+if not st.session_state.responses:
+    for session in SESSIONS:
+        session_id = session["id"]
+        st.session_state.responses[session_id] = {
+            "title": session["title"],
+            "questions": {},
+            "summary": "",
+            "completed": False,
+            "word_target": session.get("word_target", DEFAULT_WORD_TARGET)
+        }
+        st.session_state.session_conversations[session_id] = {}
+
+if st.session_state.logged_in and st.session_state.user_id and not st.session_state.data_loaded:
+    user_data = load_user_data(st.session_state.user_id)
+    if "responses" in user_data:
+        for session_id_str, session_data in user_data["responses"].items():
+            try:
+                session_id = int(session_id_str)
+                if session_id in st.session_state.responses:
+                    if "questions" in session_data:
+                        st.session_state.responses[session_id]["questions"] = session_data["questions"]
+            except ValueError:
+                continue
+    st.session_state.data_loaded = True
+
+# ── Authentication Components ─────────────────────────────────────────────────
+def show_login_signup():
+    st.markdown("""
+    <div class="auth-container">
+    <h1 class="auth-title">MemLife</h1>
+    <p class="auth-subtitle">Your Life Timeline • Preserve Your Legacy</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if 'auth_tab' not in st.session_state:
+        st.session_state.auth_tab = 'login'
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔐 Login", use_container_width=True,
+                     type="primary" if st.session_state.auth_tab == 'login' else "secondary"):
+            st.session_state.auth_tab = 'login'
+            st.rerun()
+    with col2:
+        if st.button("📝 Sign Up", use_container_width=True,
+                     type="primary" if st.session_state.auth_tab == 'signup' else "secondary"):
+            st.session_state.auth_tab = 'signup'
+            st.rerun()
+
+    st.divider()
+
+    if st.session_state.auth_tab == 'login':
+        show_login_form()
+    else:
+        show_signup_form()
+
+def show_login_form():
+    with st.form("login_form"):
+        st.subheader("Welcome Back")
+        email = st.text_input("Email Address", key="login_email")
+        password = st.text_input("Password", type="password", key="login_password")
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            remember_me = st.checkbox("Remember me", value=True)
+        with col2:
+            st.markdown('<div class="forgot-password"><a href="#">Forgot password?</a></div>', unsafe_allow_html=True)
+        login_button = st.form_submit_button("Login to My Account", type="primary", use_container_width=True)
+        if login_button:
+            if not email or not password:
+                st.error("Please enter both email and password")
+            else:
+                with st.spinner("Signing in..."):
+                    result = authenticate_user(email, password)
+                    if result["success"]:
+                        st.session_state.user_id = result["user_id"]
+                        st.session_state.user_account = result["user_record"]
+                        st.session_state.logged_in = True
+                        st.session_state.data_loaded = False
+                        if remember_me:
+                            st.query_params['user'] = result['user_id']
+                        st.success("✅ Login successful!")
+                        st.rerun()
+                    else:
+                        st.error(f"Login failed: {result.get('error', 'Unknown error')}")
+
+def show_signup_form():
+    with st.form("signup_form"):
+        st.subheader("Create New Account")
+        col1, col2 = st.columns(2)
+        with col1:
+            first_name = st.text_input("First Name*", key="signup_first_name")
+        with col2:
+            last_name = st.text_input("Last Name*", key="signup_last_name")
+        email = st.text_input("Email Address*", key="signup_email")
+        col1, col2 = st.columns(2)
+        with col1:
+            password = st.text_input("Password*", type="password", key="signup_password")
+        with col2:
+            confirm_password = st.text_input("Confirm Password*", type="password", key="signup_confirm_password")
+        accept_terms = st.checkbox("I agree to the Terms of Service and Privacy Policy*", key="signup_terms")
+        signup_button = st.form_submit_button("Create My Account", type="primary", use_container_width=True)
+        if signup_button:
+            errors = []
+            if not first_name:
+                errors.append("First name is required")
+            if not last_name:
+                errors.append("Last name is required")
+            if not email or "@" not in email:
+                errors.append("Valid email is required")
+            if not password or len(password) < 8:
+                errors.append("Password must be at least 8 characters")
+            if password != confirm_password:
+                errors.append("Passwords do not match")
+            if not accept_terms:
+                errors.append("You must accept the terms and conditions")
+            if email and "@" in email:
+                existing_account = get_account_data(email=email)
+                if existing_account:
+                    errors.append("An account with this email already exists")
+            if errors:
+                for error in errors:
+                    st.error(error)
+            else:
+                user_data = {
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "email": email,
+                    "account_for": "self"
+                }
+                with st.spinner("Creating your account..."):
+                    result = create_user_account(user_data, password)
+                    if result["success"]:
+                        email_sent = send_welcome_email(user_data, {
+                            "user_id": result["user_id"],
+                            "password": password
+                        })
+                        st.session_state.user_id = result["user_id"]
+                        st.session_state.user_account = result["user_record"]
+                        st.session_state.logged_in = True
+                        st.session_state.data_loaded = False
+                        st.session_state.show_profile_setup = True
+                        st.success("✅ Account created successfully!")
+                        if email_sent:
+                            st.info(f"📧 Welcome email sent to {email}")
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.error(f"Error creating account: {result.get('error', 'Unknown error')}")
+
+def show_profile_setup_modal():
+    st.markdown('<div class="profile-setup-modal">', unsafe_allow_html=True)
+    st.title("👤 Complete Your Profile")
+    st.write("Please complete your profile to start building your timeline:")
+    with st.form("profile_setup_form"):
+        st.write("**Gender**")
+        gender = st.radio(
+            "Gender",
+            ["Male", "Female", "Other", "Prefer not to say"],
+            horizontal=True,
+            key="modal_gender",
+            label_visibility="collapsed"
+        )
+        st.write("**Birthdate**")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            months = ["January", "February", "March", "April", "May", "June",
+                      "July", "August", "September", "October", "November", "December"]
+            birth_month = st.selectbox("Month", months, key="modal_month", label_visibility="collapsed")
+        with col2:
+            days = list(range(1, 32))
+            birth_day = st.selectbox("Day", days, key="modal_day", label_visibility="collapsed")
+        with col3:
+            current_year = datetime.now().year
+            years = list(range(current_year, current_year - 120, -1))
+            birth_year = st.selectbox("Year", years, key="modal_year", label_visibility="collapsed")
+        st.write("**Is this account for you or someone else?**")
+        account_for = st.radio(
+            "Account Type",
+            ["For me", "For someone else"],
+            key="modal_account_type",
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+        col1, col2 = st.columns(2)
+        with col1:
+            submit_button = st.form_submit_button("Complete Profile", type="primary", use_container_width=True)
+        with col2:
+            skip_button = st.form_submit_button("Skip for Now", type="secondary", use_container_width=True)
+        if submit_button or skip_button:
+            if submit_button:
+                if not birth_month or not birth_day or not birth_year:
+                    st.error("Please complete your birthdate or click 'Skip for Now'")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    return
+            birthdate = f"{birth_month} {birth_day}, {birth_year}" if submit_button else ""
+            account_for_value = "self" if account_for == "For me" else "other"
+            if st.session_state.user_account:
+                st.session_state.user_account['profile']['gender'] = gender if submit_button else ""
+                st.session_state.user_account['profile']['birthdate'] = birthdate
+                st.session_state.user_account['profile']['timeline_start'] = birthdate
+                st.session_state.user_account['account_type'] = account_for_value
+                save_account_data(st.session_state.user_account)
+                st.success("Profile updated successfully!")
+            st.session_state.show_profile_setup = False
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ── Core Functions ────────────────────────────────────────────────────────────
+def save_response(session_id, question, answer):
+    user_id = st.session_state.user_id
+    if not user_id or user_id == "":
+        print("DEBUG: No user_id, cannot save")
+        return False
+    print(f"DEBUG: Saving for user {user_id}, session {session_id}, question: {question[:50]}...")
+    update_streak()
+    if st.session_state.user_account:
+        word_count = len(re.findall(r'\w+', answer))
+        if "stats" not in st.session_state.user_account:
+            st.session_state.user_account["stats"] = {}
+        st.session_state.user_account["stats"]["total_words"] = st.session_state.user_account["stats"].get("total_words", 0) + word_count
+        st.session_state.user_account["stats"]["total_sessions"] = len(st.session_state.responses[session_id].get("questions", {}))
+        st.session_state.user_account["stats"]["last_active"] = datetime.now().isoformat()
+        save_account_data(st.session_state.user_account)
+    if session_id not in st.session_state.responses:
+        s = SESSIONS[session_id-1]
+        st.session_state.responses[session_id] = {
+            "title": s["title"],
+            "questions": {},
+            "summary": "",
+            "completed": False,
+            "word_target": s.get("word_target", DEFAULT_WORD_TARGET)
+        }
+    st.session_state.responses[session_id]["questions"][question] = {
+        "answer": answer,
+        "timestamp": datetime.now().isoformat()
+    }
+    if save_user_data(user_id, st.session_state.responses):
+        print(f"DEBUG: Successfully saved to JSON file for {user_id}")
+        return True
+    else:
+        print(f"DEBUG: Failed to save to JSON file for {user_id}")
+        return False
+
+def calculate_author_word_count(session_id):
+    total_words = 0
+    session_data = st.session_state.responses.get(session_id, {})
+    for question, answer_data in session_data.get("questions", {}).items():
+        if answer_data.get("answer"):
+            total_words += len(re.findall(r'\w+', answer_data["answer"]))
+    return total_words
+
+def get_progress_info(session_id):
+    current_count = calculate_author_word_count(session_id)
+    target = st.session_state.responses[session_id].get("word_target", DEFAULT_WORD_TARGET)
+    if target == 0:
+        progress_percent = 100
+        emoji = "🟢"
+        color = "#2ecc71"
+    else:
+        progress_percent = (current_count / target) * 100 if target > 0 else 100
+    if progress_percent >= 100:
+        emoji = "🟢"
+        color = "#2ecc71"
+    elif progress_percent >= 70:
+        emoji = "🟡"
+        color = "#f39c12"
+    else:
+        emoji = "🔴"
+        color = "#e74c3c"
+    remaining_words = max(0, target - current_count)
+    status_text = f"{remaining_words} words remaining" if remaining_words > 0 else "Target achieved!"
+    return {
+        "current_count": current_count,
+        "target": target,
+        "progress_percent": progress_percent,
+        "emoji": emoji,
+        "color": color,
+        "remaining_words": remaining_words,
+        "status_text": status_text
+    }
+
+def auto_correct_text(text):
+    if not text or not st.session_state.spellcheck_enabled:
+        return text
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Fix spelling and grammar mistakes in the following text. Return only the corrected text."},
+                {"role": "user", "content": text}
+            ],
+            max_tokens=len(text) + 100,
+            temperature=0.1
+        )
+        return response.choices[0].message.content
+    except:
+        return text
+
+# ── Page Setup & Main Flow ────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="MemLife - Your Life Timeline",
+    page_icon="📖",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Session state initialization
 for key, value in {
     "logged_in": False,
     "user_id": "",
@@ -828,7 +1126,6 @@ if not st.session_state.responses:
         st.session_state.session_conversations[session_id] = {}
 
 if st.session_state.logged_in and st.session_state.user_id and not st.session_state.data_loaded:
-    print(f"DEBUG: Loading data for user {st.session_state.user_id}")
     user_data = load_user_data(st.session_state.user_id)
     if "responses" in user_data:
         for session_id_str, session_data in user_data["responses"].items():
@@ -840,9 +1137,8 @@ if st.session_state.logged_in and st.session_state.user_id and not st.session_st
             except ValueError:
                 continue
     st.session_state.data_loaded = True
-    print(f"DEBUG: Data loaded for {st.session_state.user_id}")
 
-# ── Auth & Profile Setup ──────────────────────────────────────────────────────
+# ── Main App Flow ─────────────────────────────────────────────────────────────
 if st.session_state.get('show_profile_setup', False):
     show_profile_setup_modal()
     st.stop()
@@ -851,7 +1147,7 @@ if not st.session_state.logged_in:
     show_login_signup()
     st.stop()
 
-# ── Load historical events once ──────────────────────────────────────────────
+# Load historical events once
 if not st.session_state.historical_events_loaded:
     try:
         events = load_historical_events()
@@ -861,18 +1157,18 @@ if not st.session_state.historical_events_loaded:
     except Exception as e:
         print(f"Error loading historical events: {e}")
 
-# ── Main Header ───────────────────────────────────────────────────────────────
+# Main header
 st.markdown(f"""
 <div class="main-header">
-    <img src="{LOGO_URL}" class="logo-img" alt="MemLife Logo">
-    <h2 style="margin: 0; line-height: 1.2;">MemLife - Your Life Timeline</h2>
-    <p style="font-size: 0.9rem; color: #666; margin: 0; line-height: 1.2;">Preserve Your Legacy • Build Your Timeline • Share Your Story</p>
+<img src="{LOGO_URL}" class="logo-img" alt="MemLife Logo">
+<h2 style="margin: 0; line-height: 1.2;">MemLife - Your Life Timeline</h2>
+<p style="font-size: 0.9rem; color: #666; margin: 0; line-height: 1.2;">Preserve Your Legacy • Build Your Timeline • Share Your Story</p>
 </div>
 """, unsafe_allow_html=True)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    # User Profile Header with Account Info
+    # Profile
     st.header("👤 Your Profile")
     if st.session_state.user_account:
         profile = st.session_state.user_account['profile']
@@ -886,7 +1182,7 @@ with st.sidebar:
             if events:
                 uk_events = [e for e in events if e.get('region') == 'UK']
                 global_events = len(events) - len(uk_events)
-                st.caption(f"📚 {len(events)} historical events in your lifetime ({len(uk_events)} UK, {global_events} global)")
+                st.caption(f"📚 {len(events)} historical events ({len(uk_events)} UK, {global_events} global)")
         except:
             pass
         else:
@@ -929,7 +1225,7 @@ with st.sidebar:
             "Got a memory? Jot it down:",
             value="",
             height=120,
-            placeholder="E.g., 'That summer at grandma's house in 1995...' or 'My first day at IBM in 2003'",
+            placeholder="E.g., 'That summer at grandma's house in 1995...'",
             key="jot_text_area",
             label_visibility="collapsed"
         )
@@ -960,7 +1256,6 @@ with st.sidebar:
     ghostwriter_mode = st.toggle(
         "Professional Ghostwriter Mode",
         value=st.session_state.ghostwriter_mode,
-        help="When enabled, the AI acts as a professional biographer using advanced interviewing techniques with historical context and photo integration.",
         key="ghostwriter_toggle"
     )
     if ghostwriter_mode != st.session_state.ghostwriter_mode:
@@ -969,7 +1264,6 @@ with st.sidebar:
     spellcheck_enabled = st.toggle(
         "Auto Spelling Correction",
         value=st.session_state.spellcheck_enabled,
-        help="Automatically correct spelling and grammar as you type",
         key="spellcheck_toggle"
     )
     if spellcheck_enabled != st.session_state.spellcheck_enabled:
@@ -1120,7 +1414,7 @@ with st.sidebar:
             }
             json_data = json.dumps(complete_data, indent=2)
             encoded_data = base64.b64encode(json_data.encode()).decode()
-            publisher_url = f"{PUBLISHER_BASE_URL}?data={encoded_data}"
+            publisher_url = f"{LOGO_URL.replace('logo.png', '')}deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/?data={encoded_data}"
             col1, col2 = st.columns(2)
             with col1:
                 stories_only = {
@@ -1135,8 +1429,7 @@ with st.sidebar:
                     file_name=f"MemLife_Stories_{st.session_state.user_id}.json",
                     mime="application/json",
                     use_container_width=True,
-                    key="download_stories_btn",
-                    help="Download only the stories (text) as JSON"
+                    key="download_stories_btn"
                 )
             with col2:
                 st.download_button(
@@ -1145,8 +1438,7 @@ with st.sidebar:
                     file_name=f"MemLife_Complete_{st.session_state.user_id}.json",
                     mime="application/json",
                     use_container_width=True,
-                    key="download_complete_btn",
-                    help="Download stories + image metadata"
+                    key="download_complete_btn"
                 )
             if total_images > 0:
                 st.divider()
@@ -1254,7 +1546,7 @@ st.markdown("---")
 col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.subheader(f"Session {current_session_id}: {current_session['title']}")
-    session_responses = len(st.session_state.responses[current_session_id].get("questions", {}))
+    session_responses = len(st.session_state.responses.get(current_session_id, {}).get("questions", {}))
     total_questions = len(current_session["questions"])
     st.caption(f"📝 {session_responses}/{total_questions} topics answered")
     if st.session_state.logged_in:
@@ -1616,7 +1908,7 @@ if current_user and current_user != "":
         }
         json_data = json.dumps(enhanced_data, indent=2)
         encoded_data = base64.b64encode(json_data.encode()).decode()
-        publisher_url = f"{PUBLISHER_BASE_URL}?data={encoded_data}"
+        publisher_url = f"https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/?data={encoded_data}"
         st.success(f"✅ **{total_stories} stories**" + (f" + {total_images} photos" if total_images > 0 else "") + " ready to publish!")
         col1, col2 = st.columns(2)
         with col1:
