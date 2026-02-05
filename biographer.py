@@ -9,7 +9,7 @@ import os
 import re
 import hashlib
 import smtplib
-from email.mime.text import MIMETextf
+from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import secrets
 import string
