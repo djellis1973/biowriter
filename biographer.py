@@ -21,6 +21,19 @@ import uuid  # ADDED: For image management
 from PIL import Image  # ADDED: For image management
 import io  # ADDED: For image management
 
+# ============================================================================
+# NEW MODULES IMPORTS
+# ============================================================================
+# Note: These modules need to be in the same directory as this script
+try:
+    from session_manager import SessionManager
+    from topic_bank import TopicBank
+    from vignettes import VignetteManager
+    MODULES_AVAILABLE = True
+except ImportError:
+    MODULES_AVAILABLE = False
+    st.warning("New modules not found. Some features may be unavailable.")
+
 # Initialize OpenAI client
 client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")))
 
@@ -280,6 +293,7 @@ def get_total_user_images(user_id):
             pass
     
     return 0
+
 # ============================================================================
 # SECTION 4: CSS STYLING AND VISUAL DESIGN
 # ============================================================================
@@ -639,6 +653,117 @@ st.markdown(f"""
     
     .simple-image-btn:hover {{
         background: #45a049;
+    }}
+    
+    /* NEW: Session Grid Styles */
+    .session-grid-container {{
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        margin: 2rem 0;
+    }}
+    
+    .session-card {{
+        border: 2px solid;
+        border-radius: 12px;
+        padding: 1.5rem;
+        background-color: white;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        transition: transform 0.2s, box-shadow 0.2s;
+        cursor: pointer;
+    }}
+    
+    .session-card:hover {{
+        transform: translateY(-4px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+    }}
+    
+    .session-card-not-started {{
+        border-color: #F44336;
+        background-color: rgba(244, 67, 54, 0.05);
+    }}
+    
+    .session-card-in-progress {{
+        border-color: #FF9800;
+        background-color: rgba(255, 152, 0, 0.05);
+    }}
+    
+    .session-card-completed {{
+        border-color: #4CAF50;
+        background-color: rgba(76, 175, 80, 0.05);
+    }}
+    
+    .session-card-custom {{
+        border-color: #9C27B0;
+        background-color: rgba(156, 39, 176, 0.05);
+    }}
+    
+    .session-status-badge {{
+        display: inline-block;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }}
+    
+    .badge-not-started {{
+        background-color: #F44336;
+        color: white;
+    }}
+    
+    .badge-in-progress {{
+        background-color: #FF9800;
+        color: white;
+    }}
+    
+    .badge-completed {{
+        background-color: #4CAF50;
+        color: white;
+    }}
+    
+    .badge-custom {{
+        background-color: #9C27B0;
+        color: white;
+    }}
+    
+    /* NEW: Vignette Styles */
+    .vignette-card {{
+        border: 1px solid #e0e0e0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        background-color: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }}
+    
+    .vignette-title {{
+        color: #2c3e50;
+        margin-bottom: 0.5rem;
+        font-size: 1.4rem;
+    }}
+    
+    .vignette-theme {{
+        background-color: #E8F5E9;
+        color: #2E7D32;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        display: inline-block;
+        margin-bottom: 1rem;
+    }}
+    
+    /* NEW: Topic Bank Styles */
+    .topic-item {{
+        padding: 1rem;
+        margin: 0.5rem 0;
+        border-left: 4px solid #3498db;
+        background-color: #f8f9fa;
+        border-radius: 0 8px 8px 0;
+    }}
+    
+    .topic-item:hover {{
+        background-color: #e9ecef;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -1040,7 +1165,11 @@ def logout_user():
         'user_id', 'user_account', 'logged_in', 'show_profile_setup',
         'current_session', 'current_question', 'responses', 
         'session_conversations', 'data_loaded', 'show_image_upload',
-        'selected_images_for_prompt', 'image_prompt_mode'
+        'selected_images_for_prompt', 'image_prompt_mode',
+        'show_session_grid', 'show_topic_bank', 'show_vignettes',
+        'creating_custom_session', 'creating_custom_topic',
+        'viewing_vignette_detail', 'selected_vignette_id',
+        'session_manager', 'topic_bank', 'vignette_manager'
     ]
     
     for key in keys_to_clear:
@@ -1435,7 +1564,7 @@ if "show_jots" not in st.session_state:
 if "historical_events_loaded" not in st.session_state:
     st.session_state.historical_events_loaded = False
 
-# NEW: Initialize image-related state variables
+# NEW: Image-related state variables
 if "show_image_upload" not in st.session_state:
     st.session_state.show_image_upload = False
 if "image_prompt_mode" not in st.session_state:
@@ -1444,6 +1573,30 @@ if "selected_images_for_prompt" not in st.session_state:
     st.session_state.selected_images_for_prompt = []
 if "image_description" not in st.session_state:
     st.session_state.image_description = ""
+
+# NEW: Module-related state variables
+if "show_session_grid" not in st.session_state:
+    st.session_state.show_session_grid = False
+if "show_topic_bank" not in st.session_state:
+    st.session_state.show_topic_bank = False
+if "show_vignettes" not in st.session_state:
+    st.session_state.show_vignettes = False
+if "creating_custom_session" not in st.session_state:
+    st.session_state.creating_custom_session = False
+if "creating_custom_topic" not in st.session_state:
+    st.session_state.creating_custom_topic = False
+if "viewing_vignette_detail" not in st.session_state:
+    st.session_state.viewing_vignette_detail = False
+if "selected_vignette_id" not in st.session_state:
+    st.session_state.selected_vignette_id = None
+
+# NEW: Module instances
+if "session_manager" not in st.session_state:
+    st.session_state.session_manager = None
+if "topic_bank" not in st.session_state:
+    st.session_state.topic_bank = None
+if "vignette_manager" not in st.session_state:
+    st.session_state.vignette_manager = None
 
 # Initialize streak system
 if "streak_days" not in st.session_state:
@@ -1495,6 +1648,16 @@ if st.session_state.logged_in and st.session_state.user_id and not st.session_st
     st.session_state.data_loaded = True
     print(f"DEBUG: Data loaded for {st.session_state.user_id}")
 
+# Initialize modules if logged in and modules are available
+if (st.session_state.logged_in and st.session_state.user_id and 
+    MODULES_AVAILABLE and st.session_state.session_manager is None):
+    try:
+        st.session_state.session_manager = SessionManager(SESSIONS, st.session_state.user_id)
+        st.session_state.topic_bank = TopicBank(st.session_state.user_id)
+        st.session_state.vignette_manager = VignetteManager(st.session_state.user_id)
+    except Exception as e:
+        print(f"Error initializing modules: {e}")
+
 # ============================================================================
 # SECTION 13: CORE APPLICATION FUNCTIONS
 # ============================================================================
@@ -1533,6 +1696,20 @@ def save_response(session_id, question, answer):
         "answer": answer,
         "timestamp": datetime.now().isoformat()
     }
+    
+    # Update session manager progress if available
+    if st.session_state.session_manager:
+        session_questions = len(SESSIONS[session_id-1]["questions"])
+        questions_answered = len(st.session_state.responses[session_id]["questions"])
+        is_completed = questions_answered >= session_questions
+        
+        st.session_state.session_manager.update_session_progress(
+            session_id=session_id,
+            questions_answered=questions_answered,
+            word_count=word_count,
+            total_questions=session_questions,
+            is_completed=is_completed
+        )
     
     if save_user_data(user_id, st.session_state.responses):
         print(f"DEBUG: Successfully saved to JSON file for {user_id}")
@@ -1731,7 +1908,498 @@ PHOTO QUESTIONS:
 Tone: Kind, curious, professional"""
 
 # ============================================================================
-# SECTION 16: MAIN APP FLOW CONTROL
+# SECTION 16: NEW FEATURES PAGES
+# ============================================================================
+
+def show_session_grid_page():
+    """Display the session grid page"""
+    st.title("📊 Session Hub")
+    
+    if not MODULES_AVAILABLE or not st.session_state.session_manager:
+        st.error("Session manager not available. Please make sure the session_manager.py file is in the same directory.")
+        if st.button("← Back to Main"):
+            st.session_state.show_session_grid = False
+            st.rerun()
+        return
+    
+    # Create custom session button
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if st.button("➕ Create Custom Session", type="primary"):
+            st.session_state.creating_custom_session = True
+            st.rerun()
+    with col2:
+        if st.button("📚 Topic Bank"):
+            st.session_state.show_topic_bank = True
+            st.session_state.show_session_grid = False
+            st.rerun()
+    
+    st.divider()
+    
+    if st.session_state.get('creating_custom_session', False):
+        st.subheader("Create Custom Session")
+        st.session_state.session_manager.display_session_creator()
+        
+        if st.button("← Back to Grid", type="secondary"):
+            st.session_state.creating_custom_session = False
+            st.rerun()
+    else:
+        # Display session grid
+        st.subheader("Your Sessions")
+        
+        # Filter options
+        filter_option = st.selectbox("Filter by status:", 
+                                    ["All Sessions", "Not Started", "In Progress", "Completed", "Custom"])
+        
+        # Get all sessions
+        all_sessions = st.session_state.session_manager.get_all_sessions()
+        
+        # Filter sessions
+        if filter_option == "Not Started":
+            sessions_to_show = [s for s in all_sessions 
+                              if st.session_state.session_manager.get_session_status(s["id"]) == "not_started"]
+        elif filter_option == "In Progress":
+            sessions_to_show = [s for s in all_sessions 
+                              if st.session_state.session_manager.get_session_status(s["id"]) == "in_progress"]
+        elif filter_option == "Completed":
+            sessions_to_show = [s for s in all_sessions 
+                              if st.session_state.session_manager.get_session_status(s["id"]) == "completed"]
+        elif filter_option == "Custom":
+            sessions_to_show = [s for s in all_sessions if s.get("is_custom")]
+        else:
+            sessions_to_show = all_sessions
+        
+        if not sessions_to_show:
+            st.info(f"No {filter_option.lower()} sessions yet.")
+            if filter_option == "Custom":
+                st.info("Create your first custom session using the button above!")
+        else:
+            # Display in grid
+            cols = 3
+            columns = st.columns(cols)
+            
+            for i, session in enumerate(sessions_to_show):
+                col_idx = i % cols
+                with columns[col_idx]:
+                    # Get session info
+                    session_id = session["id"]
+                    progress = st.session_state.session_manager.get_session_progress(session_id)
+                    status = progress.get("status", "not_started")
+                    progress_pct = st.session_state.session_manager.get_session_progress_percentage(session_id)
+                    
+                    # Determine card class based on status
+                    if session.get("is_custom"):
+                        card_class = "session-card-custom"
+                        badge_class = "badge-custom"
+                    elif status == "completed":
+                        card_class = "session-card-completed"
+                        badge_class = "badge-completed"
+                    elif status == "in_progress":
+                        card_class = "session-card-in-progress"
+                        badge_class = "badge-in-progress"
+                    else:
+                        card_class = "session-card-not-started"
+                        badge_class = "badge-not-started"
+                    
+                    # Display card
+                    st.markdown(f"""
+                    <div class="session-card {card_class}">
+                        <div class="session-status-badge {badge_class}">
+                            {status.replace('_', ' ').title()}
+                        </div>
+                        <h3>{session['title']}</h3>
+                    """, unsafe_allow_html=True)
+                    
+                    if session.get("is_custom"):
+                        st.markdown("""
+                        <div style="
+                            background-color: #E3F2FD;
+                            color: #1976D2;
+                            padding: 0.3rem 0.6rem;
+                            border-radius: 10px;
+                            font-size: 0.8rem;
+                            display: inline-block;
+                            margin: 0.5rem 0;
+                        ">
+                            ✨ Custom Session
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Progress bar
+                    st.progress(progress_pct / 100)
+                    
+                    # Progress info
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.caption(f"📝 {progress.get('questions_answered', 0)} topics")
+                    with col_b:
+                        st.caption(f"📖 {progress.get('word_count', 0)} words")
+                    
+                    # Action buttons
+                    if st.button("Enter Session", key=f"enter_{session_id}", 
+                               use_container_width=True):
+                        # Set as current session
+                        if session.get("is_custom"):
+                            # For custom sessions, we need to handle differently
+                            st.info(f"Entering custom session: {session['title']}")
+                            # You would need to implement custom session handling
+                        else:
+                            # Find session index
+                            for idx, s in enumerate(SESSIONS):
+                                if s["id"] == session_id:
+                                    st.session_state.current_session = idx
+                                    st.session_state.current_question = 0
+                                    st.session_state.show_session_grid = False
+                                    st.rerun()
+                                    break
+                    
+                    st.markdown("</div>", unsafe_allow_html=True)
+    
+    st.divider()
+    
+    if st.button("← Back to Main", key="back_from_session_grid"):
+        st.session_state.show_session_grid = False
+        st.rerun()
+
+def show_topic_bank_page():
+    """Display the topic bank page"""
+    st.title("🗂️ Topic Bank")
+    
+    if not MODULES_AVAILABLE or not st.session_state.topic_bank:
+        st.error("Topic bank not available. Please make sure the topic_bank.py file is in the same directory.")
+        if st.button("← Back to Main"):
+            st.session_state.show_topic_bank = False
+            st.rerun()
+        return
+    
+    # Create custom topic button
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if st.button("➕ Add Custom Topic", type="primary"):
+            st.session_state.creating_custom_topic = True
+            st.rerun()
+    with col2:
+        if st.button("📊 Session Grid"):
+            st.session_state.show_session_grid = True
+            st.session_state.show_topic_bank = False
+            st.rerun()
+    
+    st.divider()
+    
+    if st.session_state.get('creating_custom_topic', False):
+        st.subheader("Add Custom Topic")
+        st.session_state.topic_bank.display_topic_creator()
+        
+        if st.button("← Back to Topic Bank", type="secondary"):
+            st.session_state.creating_custom_topic = False
+            st.rerun()
+    else:
+        # Search and browse
+        tab1, tab2 = st.tabs(["🔍 Search Topics", "📚 Browse Categories"])
+        
+        with tab1:
+            search_query = st.text_input("Search topics...", placeholder="Type to search topics")
+            
+            if search_query:
+                results = st.session_state.topic_bank.search_topics(search_query)
+                if results:
+                    st.subheader(f"Search Results ({len(results)})")
+                    for result in results:
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        
+                        with col1:
+                            st.write(f"**{result['text']}**")
+                            st.caption(f"Category: {result.get('category', 'N/A')}")
+                        
+                        with col2:
+                            if result.get("type") == "user":
+                                st.caption("✨ Custom")
+                            else:
+                                st.caption("📚 Standard")
+                        
+                        with col3:
+                            if st.button("Use", key=f"use_{hash(result['text'])}"):
+                                st.session_state.current_question_override = result["text"]
+                                st.session_state.show_topic_bank = False
+                                st.success(f"Topic set: {result['text']}")
+                                st.rerun()
+                        
+                        st.divider()
+                else:
+                    st.info("No topics found. Try a different search term.")
+            else:
+                st.info("Enter a search term to find topics.")
+        
+        with tab2:
+            # Show popular topics
+            st.subheader("✨ Popular Topics")
+            
+            popular_topics = st.session_state.topic_bank.get_popular_topics(10)
+            if popular_topics:
+                for topic in popular_topics:
+                    col1, col2, col3 = st.columns([3, 1, 1])
+                    
+                    with col1:
+                        st.write(f"**{topic['text']}**")
+                        st.caption(f"Category: {topic.get('category', 'custom')}")
+                    
+                    with col2:
+                        st.metric("Used", topic.get("used_count", 0))
+                    
+                    with col3:
+                        if st.button("Use", key=f"use_pop_{topic['id']}"):
+                            st.session_state.current_question_override = topic["text"]
+                            st.session_state.topic_bank.increment_topic_use(topic["text"])
+                            st.session_state.show_topic_bank = False
+                            st.success(f"Topic set: {topic['text']}")
+                            st.rerun()
+                    
+                    st.divider()
+            else:
+                st.info("No popular topics yet. Start adding topics!")
+            
+            # Show categories
+            st.subheader("📁 Browse by Category")
+            
+            categories = st.session_state.topic_bank.get_all_categories()[:6]  # Show first 6
+            
+            for category in categories:
+                with st.expander(f"📂 {category.title()}", expanded=False):
+                    topics = st.session_state.topic_bank.get_topics_by_category(category)
+                    if topics:
+                        for topic in topics[:10]:  # Show first 10
+                            if st.button(topic, key=f"cat_{category}_{hash(topic)}", 
+                                       use_container_width=True):
+                                st.session_state.current_question_override = topic
+                                st.session_state.show_topic_bank = False
+                                st.success(f"Topic set: {topic}")
+                                st.rerun()
+                    else:
+                        st.info(f"No topics in {category} category yet.")
+    
+    st.divider()
+    
+    if st.button("← Back to Main", key="back_from_topic_bank"):
+        st.session_state.show_topic_bank = False
+        st.rerun()
+
+def show_vignettes_page():
+    """Display the vignettes page"""
+    st.title("✨ Vignettes - Short Stories")
+    
+    if not MODULES_AVAILABLE or not st.session_state.vignette_manager:
+        st.error("Vignette manager not available. Please make sure the vignettes.py file is in the same directory.")
+        if st.button("← Back to Main"):
+            st.session_state.show_vignettes = False
+            st.rerun()
+        return
+    
+    # Check if viewing detail
+    if st.session_state.get('viewing_vignette_detail', False) and st.session_state.selected_vignette_id:
+        vignette = st.session_state.vignette_manager.get_vignette_by_id(st.session_state.selected_vignette_id)
+        
+        if vignette:
+            # Back button
+            if st.button("← Back to Vignettes"):
+                st.session_state.viewing_vignette_detail = False
+                st.session_state.selected_vignette_id = None
+                st.rerun()
+            
+            st.divider()
+            
+            # Display vignette detail
+            st.session_state.vignette_manager.display_vignette_detail(
+                st.session_state.selected_vignette_id,
+                show_actions=True
+            )
+            
+            # Add to main story option
+            st.divider()
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("📖 Add to Main Story", type="primary", use_container_width=True):
+                    st.success("Added to your main biography! You can find it in your sessions.")
+            with col2:
+                if st.button("🔄 Edit", use_container_width=True):
+                    st.info("Edit functionality coming soon!")
+            with col3:
+                if st.button("🗑️ Delete", type="secondary", use_container_width=True):
+                    st.warning("Delete functionality coming soon!")
+        else:
+            st.error("Vignette not found")
+            st.session_state.viewing_vignette_detail = False
+            st.session_state.selected_vignette_id = None
+            st.rerun()
+        
+        return
+    
+    # Main vignettes interface
+    tab1, tab2, tab3 = st.tabs(["📝 Write New", "📚 My Stories", "📊 Statistics"])
+    
+    with tab1:
+        # Create new vignette
+        st.subheader("Write a New Vignette")
+        st.write("Create a short story about a specific moment or experience in your life.")
+        
+        st.session_state.vignette_manager.display_vignette_creator(
+            on_publish=lambda vignette: st.success(f"Published '{vignette['title']}'!")
+        )
+    
+    with tab2:
+        # Show user's vignettes
+        st.subheader("Your Stories")
+        
+        # Filter options
+        filter_option = st.selectbox("Show:", 
+                                    ["All Stories", "Published", "Drafts", "Most Viewed", "Most Liked"])
+        
+        # Get vignettes based on filter
+        if filter_option == "Published":
+            vignettes = [v for v in st.session_state.vignette_manager.get_all_vignettes() 
+                        if v.get("is_published")]
+        elif filter_option == "Drafts":
+            vignettes = [v for v in st.session_state.vignette_manager.get_all_vignettes() 
+                        if v.get("is_draft")]
+        elif filter_option == "Most Viewed":
+            vignettes = sorted(st.session_state.vignette_manager.get_all_vignettes(),
+                             key=lambda x: x.get("views", 0), reverse=True)
+        elif filter_option == "Most Liked":
+            vignettes = sorted(st.session_state.vignette_manager.get_all_vignettes(),
+                             key=lambda x: x.get("likes", 0), reverse=True)
+        else:
+            vignettes = st.session_state.vignette_manager.get_all_vignettes()
+        
+        if not vignettes:
+            st.info(f"No {filter_option.lower()} yet.")
+            if filter_option == "All Stories":
+                st.info("Create your first vignette in the 'Write New' tab!")
+        else:
+            # Display vignettes
+            for vignette in vignettes[:10]:  # Show first 10
+                # Determine status badge
+                if vignette.get("is_published"):
+                    status_badge = """
+                    <span style="
+                        background-color: #4CAF50;
+                        color: white;
+                        padding: 0.3rem 0.6rem;
+                        border-radius: 12px;
+                        font-size: 0.8rem;
+                        margin-left: 0.5rem;
+                    ">
+                        Published
+                    </span>
+                    """
+                elif vignette.get("is_draft"):
+                    status_badge = """
+                    <span style="
+                        background-color: #FF9800;
+                        color: white;
+                        padding: 0.3rem 0.6rem;
+                        border-radius: 12px;
+                        font-size: 0.8rem;
+                        margin-left: 0.5rem;
+                    ">
+                        Draft
+                    </span>
+                    """
+                else:
+                    status_badge = ""
+                
+                # Display card
+                st.markdown(f"""
+                <div class="vignette-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3 class="vignette-title">{vignette['title']}</h3>
+                        {status_badge}
+                    </div>
+                    <div class="vignette-theme">{vignette['theme']}</div>
+                """, unsafe_allow_html=True)
+                
+                # Preview
+                preview = vignette['content'][:150] + "..." if len(vignette['content']) > 150 else vignette['content']
+                st.write(preview)
+                
+                # Stats and actions
+                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                with col1:
+                    st.caption(f"📝 {vignette['word_count']} words • {datetime.fromisoformat(vignette['created_at']).strftime('%b %d, %Y')}")
+                with col2:
+                    if vignette.get('views', 0) > 0:
+                        st.caption(f"👁️ {vignette['views']}")
+                with col3:
+                    if vignette.get('likes', 0) > 0:
+                        st.caption(f"❤️ {vignette['likes']}")
+                with col4:
+                    if st.button("Read", key=f"read_{vignette['id']}"):
+                        st.session_state.viewing_vignette_detail = True
+                        st.session_state.selected_vignette_id = vignette['id']
+                        st.rerun()
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+    
+    with tab3:
+        # Statistics
+        st.subheader("Vignette Statistics")
+        
+        if st.session_state.vignette_manager:
+            # Get stats
+            all_vignettes = st.session_state.vignette_manager.get_all_vignettes()
+            published_vignettes = [v for v in all_vignettes if v.get("is_published")]
+            draft_vignettes = [v for v in all_vignettes if v.get("is_draft")]
+            
+            # Display metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Stories", len(all_vignettes))
+            with col2:
+                st.metric("Published", len(published_vignettes))
+            with col3:
+                st.metric("Drafts", len(draft_vignettes))
+            with col4:
+                total_words = sum(v['word_count'] for v in all_vignettes)
+                st.metric("Total Words", total_words)
+            
+            # Theme stats
+            st.subheader("📊 By Theme")
+            theme_stats = st.session_state.vignette_manager.get_theme_stats()
+            
+            if theme_stats:
+                for theme, stats in list(theme_stats.items())[:10]:  # Show top 10
+                    with st.expander(f"{theme} ({stats['count']} stories)"):
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Stories", stats['count'])
+                        with col2:
+                            st.metric("Avg Words", stats['total_words'] // stats['count'] if stats['count'] > 0 else 0)
+                        with col3:
+                            st.metric("Total Views", stats['total_views'])
+            else:
+                st.info("No theme statistics yet.")
+            
+            # Popular stories
+            st.subheader("🏆 Popular Stories")
+            popular = sorted(all_vignettes, 
+                           key=lambda x: x.get("views", 0), 
+                           reverse=True)[:5]
+            
+            for i, vignette in enumerate(popular):
+                st.write(f"{i+1}. **{vignette['title']}** - {vignette['theme']}")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.caption(f"👁️ {vignette.get('views', 0)} views")
+                with col2:
+                    st.caption(f"❤️ {vignette.get('likes', 0)} likes")
+                st.divider()
+    
+    st.divider()
+    
+    if st.button("← Back to Main", key="back_from_vignettes"):
+        st.session_state.show_vignettes = False
+        st.rerun()
+
+# ============================================================================
+# SECTION 17: MAIN APP FLOW CONTROL
 # ============================================================================
 
 # Show profile setup modal if needed
@@ -1742,6 +2410,19 @@ if st.session_state.get('show_profile_setup', False):
 # Show login/signup if not logged in
 if not st.session_state.logged_in:
     show_login_signup()
+    st.stop()
+
+# Check if we're in a new feature page
+if st.session_state.get('show_session_grid', False):
+    show_session_grid_page()
+    st.stop()
+
+if st.session_state.get('show_topic_bank', False):
+    show_topic_bank_page()
+    st.stop()
+
+if st.session_state.get('show_vignettes', False):
+    show_vignettes_page()
     st.stop()
 
 # Load historical events once
@@ -1755,7 +2436,7 @@ if not st.session_state.historical_events_loaded:
         print(f"Error loading historical events: {e}")
 
 # ============================================================================
-# SECTION 17: MAIN APP HEADER
+# SECTION 18: MAIN APP HEADER
 # ============================================================================
 st.markdown(f"""
 <div class="main-header">
@@ -1766,7 +2447,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# SECTION 18: SIDEBAR - USER PROFILE AND SETTINGS
+# SECTION 19: SIDEBAR - USER PROFILE AND SETTINGS
 # ============================================================================
 with st.sidebar:
     # User Profile Header with Account Info
@@ -1807,6 +2488,35 @@ with st.sidebar:
         # Logout Button
         if st.button("🚪 Log Out", use_container_width=True):
             logout_user()
+    
+    st.divider()
+    
+    # ============================================================================
+    # NEW FEATURES NAVIGATION
+    # ============================================================================
+    st.header("✨ New Features")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📊 Session Grid", use_container_width=True, 
+                    type="primary" if MODULES_AVAILABLE else "secondary"):
+            st.session_state.show_session_grid = True
+            st.rerun()
+    
+    with col2:
+        if st.button("✨ Vignettes", use_container_width=True,
+                    type="primary" if MODULES_AVAILABLE else "secondary"):
+            st.session_state.show_vignettes = True
+            st.rerun()
+    
+    if st.button("🗂️ Topic Bank", use_container_width=True,
+                type="primary" if MODULES_AVAILABLE else "secondary"):
+        st.session_state.show_topic_bank = True
+        st.rerun()
+    
+    if not MODULES_AVAILABLE:
+        st.warning("New modules not loaded")
+        st.caption("Make sure session_manager.py, topic_bank.py, and vignettes.py are in the same directory")
     
     st.divider()
     
@@ -1983,10 +2693,10 @@ with st.sidebar:
         st.info("Add your birthdate to enable historical context")
     
     # ============================================================================
-    # SESSION NAVIGATION
+    # SESSION NAVIGATION (LEGACY)
     # ============================================================================
     st.divider()
-    st.header("📖 Sessions")
+    st.header("📖 Sessions (Legacy)")
     
     for i, session in enumerate(SESSIONS):
         session_id = session["id"]
@@ -2019,7 +2729,7 @@ with st.sidebar:
             st.rerun()
     
     # ============================================================================
-    # TOPIC NAVIGATION
+    # TOPIC NAVIGATION (LEGACY)
     # ============================================================================
     st.divider()
     st.subheader("Topic Navigation")
@@ -2281,7 +2991,7 @@ with st.sidebar:
                 st.rerun()
 
 # ============================================================================
-# SECTION 19: HISTORICAL EVENTS VIEWER (IF REQUESTED)
+# SECTION 20: HISTORICAL EVENTS VIEWER (IF REQUESTED)
 # ============================================================================
 if st.session_state.get('show_event_manager', False):
     st.markdown("---")
@@ -2340,7 +3050,7 @@ if st.session_state.get('show_event_manager', False):
     st.markdown("---")
 
 # ============================================================================
-# SECTION 20: QUICK NOTES VIEWER (IF REQUESTED)
+# SECTION 21: QUICK NOTES VIEWER (IF REQUESTED)
 # ============================================================================
 if st.session_state.get('show_jots', False) and st.session_state.quick_jots:
     st.markdown("---")
@@ -2367,7 +3077,7 @@ if st.session_state.get('show_jots', False) and st.session_state.quick_jots:
     st.markdown("---")
 
 # ============================================================================
-# SECTION 21: MAIN CONTENT - SESSION HEADER
+# SECTION 22: MAIN CONTENT - SESSION HEADER
 # ============================================================================
 current_session = SESSIONS[st.session_state.current_session]
 current_session_id = current_session["id"]
@@ -2381,7 +3091,7 @@ else:
     question_source = "regular"
 
 # ============================================================================
-# SECTION 22: SIMPLE IMAGE UPLOAD AND GALLERY
+# SECTION 23: SIMPLE IMAGE UPLOAD AND GALLERY
 # ============================================================================
 st.markdown("---")
 
@@ -2572,7 +3282,7 @@ if question_source == "regular":
         st.caption(f"📝 Topics explored: {topics_answered}/{total_topics} ({topic_progress*100:.0f}%)")
 
 # ============================================================================
-# SECTION 23: CONVERSATION DISPLAY AND CHAT INPUT
+# SECTION 24: CONVERSATION DISPLAY AND CHAT INPUT
 # ============================================================================
 if current_session_id not in st.session_state.session_conversations:
     st.session_state.session_conversations[current_session_id] = {}
@@ -2747,7 +3457,7 @@ with input_container:
         st.rerun()
 
 # ============================================================================
-# SECTION 24: WORD PROGRESS INDICATOR
+# SECTION 25: WORD PROGRESS INDICATOR
 # ============================================================================
 st.divider()
 
@@ -2804,7 +3514,7 @@ if st.session_state.editing_word_target:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================================
-# SECTION 25: FOOTER WITH STATISTICS
+# SECTION 26: FOOTER WITH STATISTICS
 # ============================================================================
 st.divider()
 col1, col2, col3, col4 = st.columns(4)
@@ -2824,7 +3534,7 @@ with col4:
         st.metric("Total Photos", f"{total_images}")
 
 # ============================================================================
-# SECTION 26: PUBLISH & VAULT SECTION
+# SECTION 27: PUBLISH & VAULT SECTION
 # ============================================================================
 st.divider()
 st.subheader("📘 Publish & Save Your Biography")
@@ -2956,7 +3666,7 @@ else:
     st.info("👤 **Please log in to publish your biography**")
 
 # ============================================================================
-# SECTION 27: FOOTER
+# SECTION 28: FOOTER
 # ============================================================================
 st.markdown("---")
 
@@ -2968,10 +3678,15 @@ if st.session_state.user_account:
     # Get total images
     total_images = get_total_user_images(st.session_state.user_id) if st.session_state.logged_in else 0
     
+    # Get total vignettes if available
+    total_vignettes = 0
+    if st.session_state.vignette_manager:
+        total_vignettes = len(st.session_state.vignette_manager.get_all_vignettes())
+    
     footer_info = f"""
-    MemLife Timeline • 👤 {profile['first_name']} {profile['last_name']} • 📧 {profile['email']} • 
-    🎂 {profile.get('birthdate', 'Not specified')} • 🔥 {st.session_state.streak_days} day streak • 
-    📷 {total_images} photos • 📅 Account Age: {account_age} days
+    MemLife Timeline • 👤 {profile['first_name']} {profile['last_name']} • 
+    📷 {total_images} photos • ✨ {total_vignettes} vignettes • 
+    🔥 {st.session_state.streak_days} day streak • 📅 Account Age: {account_age} days
     """
     st.caption(footer_info)
 else:
