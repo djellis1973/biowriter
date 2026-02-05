@@ -1452,54 +1452,56 @@ with st.sidebar:
         save_navigation_state()
         st.rerun()
     
-    # Show saved vignettes
-    if st.session_state.logged_in:
-        vignette_manager = VignetteManager(st.session_state.user_id)
-        user_vignettes = vignette_manager.get_all_vignettes(include_drafts=True)
-        
-        if user_vignettes:
-            with st.expander(f"📚 Your Vignettes ({len(user_vignettes)})", expanded=False):
-                for idx, vignette in enumerate(user_vignettes[:3]):  # Show first 3
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        status = "📝 Draft" if vignette.get('is_draft') else "🚀 Published"
-                        st.write(f"**{vignette['title']}**")
-                        st.caption(f"{status} • {vignette['theme']}")
-                    with col2:
-                        if st.button("Open", key=f"open_v_{idx}", size="small"):
-                            st.session_state.show_vignette_publish_options = vignette["id"]
-                            save_navigation_state()
-                            st.rerun()
-                    
-                    if idx < len(user_vignettes[:3]) - 1:
-                        st.divider()
+# Show saved vignettes
+if st.session_state.logged_in:
+    vignette_manager = VignetteManager(st.session_state.user_id)
+    user_vignettes = vignette_manager.get_all_vignettes(include_drafts=True)
     
-    # Show custom sessions
-    if st.session_state.logged_in:
-        session_manager = SessionManager(SESSIONS, st.session_state.user_id)
-        custom_sessions = session_manager.custom_sessions
-        
-        if custom_sessions:
-            with st.expander(f"🆕 Custom Sessions ({len(custom_sessions)})", expanded=False):
-                for idx, session in enumerate(custom_sessions[:3]):  # Show first 3
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.write(f"**{session['title']}**")
-                        st.caption(f"{len(session.get('topics', []))} topics")
-                    with col2:
-                        if st.button("Enter", key=f"enter_cs_{idx}", size="small"):
-                            # Find session index
-                            all_sessions = session_manager.get_all_sessions()
-                            for i, s in enumerate(all_sessions):
-                                if s["id"] == session["id"]:
-                                    st.session_state.current_session = i
-                                    st.session_state.current_question = 0
-                                    save_navigation_state()
-                                    st.rerun()
-                                    break
-                    
-                    if idx < len(custom_sessions[:3]) - 1:
-                        st.divider()
+    if user_vignettes:
+        with st.expander(f"📚 Your Vignettes ({len(user_vignettes)})", expanded=False):
+            for idx, vignette in enumerate(user_vignettes[:3]):  # Show first 3
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    status = "📝 Draft" if vignette.get('is_draft') else "🚀 Published"
+                    st.write(f"**{vignette['title']}**")
+                    st.caption(f"{status} • {vignette['theme']}")
+                with col2:
+                    # REMOVED size="small"
+                    if st.button("Open", key=f"open_v_{idx}"):
+                        st.session_state.show_vignette_publish_options = vignette["id"]
+                        save_navigation_state()
+                        st.rerun()
+                
+                if idx < len(user_vignettes[:3]) - 1:
+                    st.divider()
+
+# Show custom sessions
+if st.session_state.logged_in:
+    session_manager = SessionManager(SESSIONS, st.session_state.user_id)
+    custom_sessions = session_manager.custom_sessions
+    
+    if custom_sessions:
+        with st.expander(f"🆕 Custom Sessions ({len(custom_sessions)})", expanded=False):
+            for idx, session in enumerate(custom_sessions[:3]):  # Show first 3
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"**{session['title']}**")
+                    st.caption(f"{len(session.get('topics', []))} topics")
+                with col2:
+                    # REMOVED size="small"
+                    if st.button("Enter", key=f"enter_cs_{idx}"):
+                        # Find session index
+                        all_sessions = session_manager.get_all_sessions()
+                        for i, s in enumerate(all_sessions):
+                            if s["id"] == session["id"]:
+                                st.session_state.current_session = i
+                                st.session_state.current_question = 0
+                                save_navigation_state()
+                                st.rerun()
+                                break
+                
+                if idx < len(custom_sessions[:3]) - 1:
+                    st.divider()
     
     # ── SESSION NAVIGATION ────────────────────────────────────────────────────
     st.divider()
