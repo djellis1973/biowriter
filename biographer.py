@@ -14,28 +14,17 @@ import string
 import base64
 import pandas as pd
 import uuid
-from PIL import Image
-import io
-import random
 import sys
+import random
 
 # Add current directory to path to import modules
 sys.path.append('.')
 
-# Import ALL modules
+# Import ALL modules (REMOVED image_manager import)
 try:
     from topic_bank import TopicBank
     from session_manager import SessionManager
     from vignettes import VignetteManager
-    from image_manager import (
-        get_session_images,
-        save_uploaded_image,
-        delete_image,
-        display_image_gallery,
-        get_images_for_prompt,
-        get_total_user_images,
-        image_upload_interface
-    )
 except ImportError as e:
     st.error(f"Error importing modules: {e}")
     st.info("Please ensure all .py files are in the same directory")
@@ -43,7 +32,6 @@ except ImportError as e:
     TopicBank = None
     SessionManager = None
     VignetteManager = None
-    # Image functions will use fallbacks
 
 DEFAULT_WORD_TARGET = 500
 
@@ -60,54 +48,104 @@ except FileNotFoundError:
 # ── Constants ─────────────────────────────────────────────────────────────────
 LOGO_URL = "https://menuhunterai.com/wp-content/uploads/2026/01/logo.png"
 
-# ── Sessions ──────────────────────────────────────────────────────────────────
-SESSIONS = [
-    {
-        "id": 1,
-        "title": "Childhood",
-        "guidance": "Welcome to Session 1: Childhood—this is where we lay the foundation of your story. Professional biographies thrive on specific, sensory-rich memories. I'm looking for the kind of details that transport readers: not just what happened, but how it felt, smelled, sounded. The 'insignificant' moments often reveal the most. Take your time—we're mining for gold here.",
-        "questions": [
-            "What is your earliest memory?",
-            "Can you describe your family home growing up?",
-            "Who were the most influential people in your early years?",
-            "What was school like for you?",
-            "Were there any favourite games or hobbies?",
-            "Is there a moment from childhood that shaped who you are?",
-            "If you could give your younger self some advice, what would it be?"
-        ],
-        "completed": False,
-        "word_target": 800
-    },
-    {
-        "id": 2,
-        "title": "Family & Relationships",
-        "guidance": "Welcome to Session 2: Family & Relationships—this is where we explore the people who shaped you. Family stories are complex ecosystems. We're not seeking perfect narratives, but authentic ones. The richest material often lives in the tensions, the unsaid things, the small rituals. My job is to help you articulate what usually goes unspoken. Think in scenes rather than summaries.",
-        "questions": [
-            "How would you describe your relationship with your parents?",
-            "Are there any family traditions you remember fondly?",
-            "What was your relationship like with siblings or close relatives?",
-            "Can you share a story about a family celebration or challenge?",
-            "How did your family shape your values?"
-        ],
-        "completed": False,
-        "word_target": 700
-    },
-    {
-        "id": 3,
-        "title": "Education & Growing Up",
-        "guidance": "Welcome to Session 3: Education & Growing Up—this is where we explore how you learned to navigate the world. Education isn't just about schools—it's about how you learned to navigate the world. We're interested in the hidden curriculum: what you learned about yourself, about systems, about survival and growth. Think beyond grades to transformation.",
-        "questions": [
-            "What were your favourite subjects at school?",
-            "Did you have any memorable teachers or mentors?",
-            "How did you feel about exams and studying?",
-            "Were there any big turning points in your education?",
-            "Did you pursue further education or training?",
-            "What advice would you give about learning?"
-        ],
-        "completed": False,
-        "word_target": 600
-    }
-]
+# ── Sessions (LOAD FROM CSV ONLY - NO HARDCODING) ─────────────────────────────
+def load_sessions_from_csv(csv_path="sessions/sessions.csv"):
+    """Load sessions ONLY from CSV file - NO hardcoded fallback"""
+    try:
+        import pandas as pd
+        import os
+        
+        # Create sessions directory if it doesn't exist
+        os.makedirs(os.path.dirname(csv_path) if os.path.dirname(csv_path) else '.', exist_ok=True)
+        
+        if not os.path.exists(csv_path):
+            # CSV doesn't exist - show error and return empty list
+            st.error(f"❌ Sessions CSV file not found: {csv_path}")
+            st.info("""
+            Please create a `sessions/sessions.csv` file with this format:
+            
+            session_id,title,guidance,question,word_target
+            1,Childhood,"Welcome to Session 1...","What is your earliest memory?",500
+            1,Childhood,,"Can you describe your family home?",500
+            
+            Guidance only needs to be in the first row of each session.
+            """)
+            return []
+        
+        df = pd.read_csv(csv_path)
+        
+        # Check required columns
+        required_columns = ['session_id', 'question']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            st.error(f"❌ Missing required columns in CSV: {missing_columns}")
+            st.info("CSV must have at least: session_id, question")
+            return []
+        
+        # Group by session_id
+        sessions_dict = {}
+        
+        for session_id, group in df.groupby('session_id'):
+            session_id_int = int(session_id)
+            group = group.reset_index(drop=True)
+            
+            # Get title (use first row's title or default)
+            title = f"Session {session_id_int}"
+            if 'title' in group.columns and not group.empty:
+                first_title = group.iloc[0]['title']
+                if pd.notna(first_title) and str(first_title).strip():
+                    title = str(first_title).strip()
+            
+            # Get guidance (use first row's guidance)
+            guidance = ""
+            if 'guidance' in group.columns and not group.empty:
+                first_guidance = group.iloc[0]['guidance']
+                if pd.notna(first_guidance) and str(first_guidance).strip():
+                    guidance = str(first_guidance).strip()
+            
+            # Get word target (use first row's word_target or default to 500)
+            word_target = DEFAULT_WORD_TARGET
+            if 'word_target' in group.columns and not group.empty:
+                first_target = group.iloc[0]['word_target']
+                if pd.notna(first_target):
+                    try:
+                        word_target = int(float(first_target))
+                    except:
+                        word_target = DEFAULT_WORD_TARGET
+            
+            # Get all questions
+            questions = []
+            for _, row in group.iterrows():
+                if 'question' in row and pd.notna(row['question']) and str(row['question']).strip():
+                    questions.append(str(row['question']).strip())
+            
+            # Only add session if it has questions
+            if questions:
+                sessions_dict[session_id_int] = {
+                    "id": session_id_int,
+                    "title": title,
+                    "guidance": guidance,
+                    "questions": questions,
+                    "completed": False,
+                    "word_target": word_target
+                }
+        
+        # Convert to list and sort by session_id
+        sessions_list = list(sessions_dict.values())
+        sessions_list.sort(key=lambda x: x['id'])
+        
+        if not sessions_list:
+            st.warning("⚠️ No sessions found in CSV file")
+            return []
+        
+        return sessions_list
+        
+    except Exception as e:
+        st.error(f"❌ Error loading sessions from CSV: {e}")
+        return []
+
+# Load sessions ONCE at startup
+SESSIONS = load_sessions_from_csv()
 
 # ── Historical events – CSV only ──────────────────────────────────────────────
 def create_default_events_csv():
@@ -429,6 +467,10 @@ def save_jot(text, estimated_year=None):
 
 # ── Prompt Builder ────────────────────────────────────────────────────────────
 def get_system_prompt():
+    # Check if we have sessions loaded
+    if not SESSIONS or st.session_state.current_session >= len(SESSIONS):
+        return "No sessions available. Please check your CSV file."
+    
     current_session = SESSIONS[st.session_state.current_session]
     current_question = (
         st.session_state.current_question_override
@@ -457,68 +499,24 @@ Consider how these historical moments might have shaped their experiences and pe
         except Exception as e:
             print(f"Error generating historical context: {e}")
     
-    image_context = ""
-    if st.session_state.logged_in and st.session_state.user_id:
-        try:
-            current_session_id = current_session["id"]
-            image_context = get_images_for_prompt(st.session_state.user_id, current_session_id)
-        except:
-            pass
-    
-    image_prompt_section = ""
-    if st.session_state.image_prompt_mode and st.session_state.selected_images_for_prompt:
-        image_prompt_section = "\n\n📸 **PHOTO STORY MODE:**\n"
-        image_prompt_section += "The user has selected specific photos to write about. "
-        image_prompt_section += "Ask questions about these specific photos:\n\n"
-        for idx, img in enumerate(st.session_state.selected_images_for_prompt[:3]):
-            image_prompt_section += f"**Photo {idx+1}: {img['original_filename']}**\n"
-            if img.get('description'):
-                image_prompt_section += f"Description: {img['description']}\n"
-        photo_prompts = [
-            "Who is in this photo?",
-            "Where and when was this taken?",
-            "What was happening just before/after this moment?",
-            "What emotions does this photo bring up?",
-            "Why was this photo taken/saved?"
-        ]
-        selected_prompts = random.sample(photo_prompts, min(3, len(photo_prompts)))
-        for prompt in selected_prompts:
-            image_prompt_section += f"• {prompt}\n"
-        image_prompt_section += "\n"
-    
     if st.session_state.ghostwriter_mode:
         return f"""ROLE: You are a senior literary biographer with multiple award-winning books to your name.
 CURRENT SESSION: Session {current_session['id']}: {current_session['title']}
 CURRENT TOPIC: "{current_question}"
-{historical_context}{image_context}{image_prompt_section}
+{historical_context}
 YOUR APPROACH:
 1. Listen like an archivist
 2. Think in scenes, sensory details, and emotional truth
 3. Connect personal stories to historical context when relevant
 4. Find the story that needs to be told
-5. When photos are mentioned, ask SPECIFIC questions about them
-PHOTO QUESTIONS TO ASK:
-• "Who are the people in this photo?"
-• "What was happening that day?"
-• "Where was this taken and why were you there?"
-• "What do you remember feeling when this was taken?"
-• "What happened right after this photo was taken?"
-Tone: Literary but not pretentious. Serious but not solemn.
-IMPORTANT: When photos are mentioned, ask specific, detailed questions about them."""
+
+Tone: Literary but not pretentious. Serious but not solemn."""
     else:
         return f"""You are a warm, professional biographer helping document a life story.
 CURRENT SESSION: Session {current_session['id']}: {current_session['title']}
 CURRENT TOPIC: "{current_question}"
-{historical_context}{image_context}{image_prompt_section}
-Please:
-1. Listen actively
-2. Acknowledge warmly
-3. Ask ONE natural follow-up question that connects to historical context or photos
-4. When photos are mentioned, ask about the people, place, and emotions
-PHOTO QUESTIONS:
-• "Tell me about the people in this photo"
-• "What's the story behind this moment?"
-• "How do you feel when you look at this photo?"
+{historical_context}
+
 Tone: Kind, curious, professional"""
 
 # ── Core Functions ────────────────────────────────────────────────────────────
@@ -539,13 +537,26 @@ def save_response(session_id, question, answer):
         save_account_data(st.session_state.user_account)
     
     if session_id not in st.session_state.responses:
-        s = SESSIONS[session_id-1]
+        # Find the session in SESSIONS
+        session_data = None
+        for s in SESSIONS:
+            if s["id"] == session_id:
+                session_data = s
+                break
+        
+        if not session_data:
+            # Create a basic session entry if not found
+            session_data = {
+                "title": f"Session {session_id}",
+                "word_target": DEFAULT_WORD_TARGET
+            }
+        
         st.session_state.responses[session_id] = {
-            "title": s["title"],
+            "title": session_data.get("title", f"Session {session_id}"),
             "questions": {},
             "summary": "",
             "completed": False,
-            "word_target": s.get("word_target", DEFAULT_WORD_TARGET)
+            "word_target": session_data.get("word_target", DEFAULT_WORD_TARGET)
         }
     
     st.session_state.responses[session_id]["questions"][question] = {
@@ -569,12 +580,12 @@ def get_progress_info(session_id):
     if target == 0:
         progress_percent = 100
         emoji = "🟢"
-        color = "#2ecc71"
+        color = "#27ae60"
     else:
         progress_percent = (current_count / target) * 100 if target > 0 else 100
     if progress_percent >= 100:
         emoji = "🟢"
-        color = "#2ecc71"
+        color = "#27ae60"
     elif progress_percent >= 70:
         emoji = "🟡"
         color = "#f39c12"
@@ -834,7 +845,8 @@ def show_session_creator():
     
     st.title("📋 Create Custom Session")
     
-    session_manager = SessionManager(SESSIONS, st.session_state.user_id)
+    # Initialize SessionManager with CSV path
+    session_manager = SessionManager(st.session_state.user_id, "sessions/sessions.csv")
     session_manager.display_session_creator()
     
     st.markdown('</div>', unsafe_allow_html=True)
@@ -853,24 +865,24 @@ def show_session_manager():
     
     st.title("📖 Session Manager")
     
-    session_manager = SessionManager(SESSIONS, st.session_state.user_id)
+    # Initialize SessionManager with CSV path
+    session_manager = SessionManager(st.session_state.user_id, "sessions/sessions.csv")
     
     def on_session_select(session_id):
         all_sessions = session_manager.get_all_sessions()
         for i, session in enumerate(all_sessions):
             if session["id"] == session_id:
-                # Update current session index
-                custom_sessions = all_sessions[len(SESSIONS):]
-                if session in custom_sessions:
-                    # It's a custom session
-                    custom_index = custom_sessions.index(session)
-                    st.session_state.current_session = len(SESSIONS) + custom_index
+                # Find session index in SESSIONS
+                for j, standard_session in enumerate(SESSIONS):
+                    if standard_session["id"] == session_id:
+                        st.session_state.current_session = j
+                        break
                 else:
-                    # It's a standard session
-                    for j, standard_session in enumerate(SESSIONS):
-                        if standard_session["id"] == session_id:
-                            st.session_state.current_session = j
-                            break
+                    # It's a custom session
+                    custom_sessions = all_sessions[len(SESSIONS):]
+                    if session in custom_sessions:
+                        custom_index = custom_sessions.index(session)
+                        st.session_state.current_session = len(SESSIONS) + custom_index
                 
                 st.session_state.current_question = 0
                 st.session_state.current_question_override = None
@@ -917,10 +929,6 @@ default_state = {
     "current_jot": "",
     "show_jots": False,
     "historical_events_loaded": False,
-    "show_image_upload": False,
-    "image_prompt_mode": False,
-    "selected_images_for_prompt": [],
-    "image_description": "",
     "streak_days": 1,
     "last_active": date.today().isoformat(),
     "total_writing_days": 1,
@@ -941,24 +949,42 @@ default_state = {
     "selected_vignette_id": None,
     "editing_vignette_id": None,
     "selected_vignette_for_session": None,
-    "published_vignette": None,  # Added for vignette publish handling
+    "published_vignette": None,
 }
 
 for key, value in default_state.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
-if not st.session_state.responses:
+# Check if sessions are loaded
+if not SESSIONS:
+    st.error("❌ No sessions loaded. Please create a sessions/sessions.csv file.")
+    st.info("""
+    Create a CSV file with this format:
+    
+    session_id,title,guidance,question,word_target
+    1,Childhood,"Welcome to Session 1...","What is your earliest memory?",500
+    1,Childhood,,"Can you describe your family home?",500
+    2,Family,"Welcome to Session 2...","How would you describe your relationship?",500
+    
+    Save it as: sessions/sessions.csv
+    """)
+    st.stop()
+
+# Initialize responses for loaded sessions
+if SESSIONS:
     for session in SESSIONS:
         session_id = session["id"]
-        st.session_state.responses[session_id] = {
-            "title": session["title"],
-            "questions": {},
-            "summary": "",
-            "completed": False,
-            "word_target": session.get("word_target", DEFAULT_WORD_TARGET)
-        }
-        st.session_state.session_conversations[session_id] = {}
+        if session_id not in st.session_state.responses:
+            st.session_state.responses[session_id] = {
+                "title": session["title"],
+                "questions": {},
+                "summary": "",
+                "completed": False,
+                "word_target": session.get("word_target", DEFAULT_WORD_TARGET)
+            }
+        if session_id not in st.session_state.session_conversations:
+            st.session_state.session_conversations[session_id] = {}
 
 if st.session_state.logged_in and st.session_state.user_id and not st.session_state.data_loaded:
     user_data = load_user_data(st.session_state.user_id)
@@ -1245,19 +1271,8 @@ with st.sidebar:
         st.success("🌟 Monthly Master!")
     
     st.divider()
-    st.subheader("🖼️ Photo Gallery")
-    if st.session_state.logged_in:
-        try:
-            total_images = get_total_user_images(st.session_state.user_id)
-            st.metric("Total Photos", total_images)
-            if total_images > 0:
-                if st.button("📸 View Photos", use_container_width=True):
-                    st.session_state.show_image_upload = True
-                    st.rerun()
-            else:
-                st.info("No photos yet")
-        except:
-            st.info("No photos yet")
+    
+    # REMOVED PHOTO GALLERY SECTION
     
     st.divider()
     st.subheader("⚡ Quick Capture")
@@ -1312,7 +1327,7 @@ with st.sidebar:
         st.rerun()
     if st.session_state.ghostwriter_mode:
         st.success("✓ Professional mode active")
-        st.caption("With historical context & photo integration")
+        st.caption("With historical context")
     else:
         st.info("Standard mode active")
     
@@ -1393,7 +1408,6 @@ with st.sidebar:
             st.session_state.current_question = 0
             st.session_state.editing = None
             st.session_state.current_question_override = None
-            st.session_state.image_prompt_mode = False
             st.rerun()
     
     st.divider()
@@ -1415,7 +1429,6 @@ with st.sidebar:
                 st.session_state.current_question = st.session_state.current_question - 1
                 st.session_state.editing = None
                 st.session_state.current_question_override = None
-                st.session_state.image_prompt_mode = False
                 st.rerun()
     
     with col2:
@@ -1428,7 +1441,6 @@ with st.sidebar:
                 st.session_state.current_question = st.session_state.current_question + 1
                 st.session_state.editing = None
                 st.session_state.current_question_override = None
-                st.session_state.image_prompt_mode = False
                 st.rerun()
     
     st.divider()
@@ -1446,7 +1458,6 @@ with st.sidebar:
                 st.session_state.current_question = 0
                 st.session_state.editing = None
                 st.session_state.current_question_override = None
-                st.session_state.image_prompt_mode = False
                 st.rerun()
     
     with nav_col2:
@@ -1460,7 +1471,6 @@ with st.sidebar:
                 st.session_state.current_question = 0
                 st.session_state.editing = None
                 st.session_state.current_question_override = None
-                st.session_state.image_prompt_mode = False
                 st.rerun()
     
     session_options = [f"Session {s['id']}: {s['title']}" for s in SESSIONS]
@@ -1477,18 +1487,13 @@ with st.sidebar:
         st.session_state.current_question = 0
         st.session_state.editing = None
         st.session_state.current_question_override = None
-        st.session_state.image_prompt_mode = False
         st.rerun()
     
     st.divider()
     
     st.subheader("📤 Export Options")
     total_answers = sum(len(session.get("questions", {})) for session in st.session_state.responses.values())
-    try:
-        total_images = get_total_user_images(st.session_state.user_id) if st.session_state.logged_in else 0
-        st.caption(f"Total answers: {total_answers} • Total photos: {total_images}")
-    except:
-        st.caption(f"Total answers: {total_answers}")
+    st.caption(f"Total answers: {total_answers}")
     
     if st.session_state.logged_in and st.session_state.user_id:
         export_data = {}
@@ -1544,11 +1549,11 @@ with st.sidebar:
             st.markdown(f'''
             <a href="{publisher_url}" target="_blank">
             <button class="html-link-btn">
-            🖨️ Publish Biography (with Photos)
+            🖨️ Publish Biography
             </button>
             </a>
             ''', unsafe_allow_html=True)
-            st.caption("Create a beautiful book with your stories and photo references")
+            st.caption("Create a beautiful book with your stories")
         else:
             st.warning("No data to export yet! Start by answering some questions.")
     else:
@@ -1629,7 +1634,7 @@ with col1:
     st.caption(f"📝 {session_responses}/{total_questions} topics answered")
     
     if st.session_state.ghostwriter_mode:
-        st.markdown('<p class="ghostwriter-tag">Professional Ghostwriter Mode (with historical context & photo integration)</p>', unsafe_allow_html=True)
+        st.markdown('<p class="ghostwriter-tag">Professional Ghostwriter Mode (with historical context)</p>', unsafe_allow_html=True)
 
 with col2:
     if question_source == "custom":
@@ -1654,7 +1659,6 @@ with col3:
                 st.session_state.current_question -= 1
                 st.session_state.editing = None
                 st.session_state.current_question_override = None
-                st.session_state.image_prompt_mode = False
                 st.rerun()
     
     with nav_col2:
@@ -1667,7 +1671,6 @@ with col3:
                 st.session_state.current_question += 1
                 st.session_state.editing = None
                 st.session_state.current_question_override = None
-                st.session_state.image_prompt_mode = False
                 st.rerun()
 
 st.markdown(f"""
@@ -1676,82 +1679,19 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Image Controls ────────────────────────────────────────────────────────────
-st.write("")
-image_controls_container = st.container()
-with image_controls_container:
-    has_images = False
-    if st.session_state.logged_in:
-        try:
-            session_images = get_session_images(st.session_state.user_id, current_session_id)
-            has_images = len(session_images) > 0
-        except:
-            has_images = False
-    
-    img_col1, img_col2 = st.columns(2)
-    with img_col1:
-        button_text = "📷 Add Photos" if not st.session_state.show_image_upload else "📷 Hide Photos"
-        if st.button(button_text, key="toggle_image_upload", use_container_width=True):
-            st.session_state.show_image_upload = not st.session_state.show_image_upload
-            st.rerun()
-    
-    with img_col2:
-        if has_images:
-            if st.button("✨ Tell Photo Stories", key="photo_stories_btn", use_container_width=True, type="primary"):
-                st.session_state.image_prompt_mode = True
-                st.rerun()
-        else:
-            st.button("✨ Tell Photo Stories", key="disabled_photo_stories", use_container_width=True, disabled=True)
-    
-    if st.session_state.show_image_upload and st.session_state.logged_in:
-        st.markdown("---")
-        try:
-            image_upload_interface(st.session_state.user_id, current_session_id)
-        except:
-            st.warning("Image upload interface not available")
-        
-        try:
-            selected_images = display_image_gallery(st.session_state.user_id, current_session_id, columns=2)
-            if selected_images:
-                st.session_state.selected_images_for_prompt = selected_images
-                st.success(f"✅ Selected {len(selected_images)} photo(s)! Click 'Tell Photo Stories' to write about them.")
-        except:
-            st.info("No photos uploaded for this session yet.")
-    
-    st.markdown("---")
-    
-    if st.session_state.image_prompt_mode:
-        if st.session_state.selected_images_for_prompt:
-            selected_count = len(st.session_state.selected_images_for_prompt)
-            st.success(f"📸 **Photo Story Mode**: Writing about {selected_count} selected photo(s)")
-            st.info("The AI will ask you specific questions about each photo!")
-        else:
-            st.info("📸 **Photo Story Mode**: Select photos from the gallery to write about them")
-    
-    if st.session_state.user_account and st.session_state.user_account['profile'].get('birthdate'):
-        try:
-            birth_year = int(st.session_state.user_account['profile']['birthdate'].split(', ')[-1])
-            events = get_events_for_birth_year(birth_year)
-            if events and st.session_state.ghostwriter_mode:
-                uk_count = len([e for e in events if e.get('region') == 'UK'])
-                global_count = len(events) - uk_count
-                st.info(f"📜 **Historical Context Enabled:** Your responses will be enriched with {len(events)} historical events ({uk_count} UK, {global_count} global) from your lifetime.")
-        except:
-            pass
-    
-    if question_source == "regular":
-        st.markdown(f"""
-        <div class="chapter-guidance">
-        {current_session.get('guidance', '')}
-        </div>
-        """, unsafe_allow_html=True)
-    elif st.session_state.image_prompt_mode:
-        st.info("✨ **Photo Story Mode** - The AI will ask you questions about your selected photos. Describe what you see, who's in them, and what memories they bring up!")
+# REMOVED ALL IMAGE CONTROLS SECTION
+
+if question_source == "regular":
+    st.markdown(f"""
+    <div class="chapter-guidance">
+    {current_session.get('guidance', '')}
+    </div>
+    """, unsafe_allow_html=True)
+else:
+    if st.session_state.current_question_override.startswith("Vignette:"):
+        st.info("📝 **Vignette Mode** - Write a short, focused story about a specific moment or memory.")
     else:
-        if st.session_state.current_question_override.startswith("Vignette:"):
-            st.info("📝 **Vignette Mode** - Write a short, focused story about a specific moment or memory.")
-        else:
-            st.info("✨ **Custom Topic** - Write about whatever comes to mind!")
+        st.info("✨ **Custom Topic** - Write about whatever comes to mind!")
     
     if question_source == "regular":
         session_data = st.session_state.responses.get(current_session_id, {})
@@ -1784,11 +1724,7 @@ if not conversation:
             <div style='font-size: 1.8rem; font-weight: bold; color: #2c3e50; line-height: 1.3;'>
             {current_question_text}
             </div>"""
-            if st.session_state.image_prompt_mode:
-                welcome_msg += f"""<div style='font-size: 1.1rem; margin-top: 1.5rem; color: #4CAF50; background-color: #e8f5e9; padding: 1rem; border-radius: 8px; border-left: 4px solid #4CAF50;'>
-                📸 <strong>Photo Story Mode:</strong> You've selected {len(st.session_state.selected_images_for_prompt)} photo(s) to write about. I'll ask you questions about each photo to help tell their stories.
-                </div>"""
-            elif question_source == "custom" and st.session_state.current_question_override.startswith("Vignette:"):
+            if question_source == "custom" and st.session_state.current_question_override.startswith("Vignette:"):
                 welcome_msg += f"""<div style='font-size: 1.1rem; margin-top: 1.5rem; color: #9b59b6; background-color: #f4ecf7; padding: 1rem; border-radius: 8px; border-left: 4px solid #9b59b6;'>
                 📝 <strong>Vignette Mode:</strong> Write a short, focused story about this specific moment or memory.
                 </div>"""
@@ -1802,9 +1738,7 @@ if not conversation:
                 </div>"""
             st.markdown(welcome_msg, unsafe_allow_html=True)
         conv_text = f"Let's explore this topic in detail: {current_question_text}\n\n"
-        if st.session_state.image_prompt_mode:
-            conv_text += f"📸 Photo Story Mode: You've selected {len(st.session_state.selected_images_for_prompt)} photo(s) to write about. I'll ask you questions about each photo to help tell their stories."
-        elif question_source == "custom" and st.session_state.current_question_override.startswith("Vignette:"):
+        if question_source == "custom" and st.session_state.current_question_override.startswith("Vignette:"):
             conv_text += "📝 Vignette Mode: Write a short, focused story about this specific moment or memory."
         elif question_source == "custom":
             conv_text += "✨ Custom Topic: Write about whatever comes to mind!"
@@ -1884,9 +1818,7 @@ with input_container:
                         max_tokens=max_tokens
                     )
                     ai_response = response.choices[0].message.content
-                    if st.session_state.image_prompt_mode:
-                        ai_response += f"\n\n📸 **Photo Note:** Keep describing your photos! Who, what, where, when, and why?"
-                    elif question_source == "custom" and st.session_state.current_question_override.startswith("Vignette:"):
+                    if question_source == "custom" and st.session_state.current_question_override.startswith("Vignette:"):
                         ai_response += f"\n\n📝 **Vignette Note:** This is a great start for your vignette! Keep adding details about this specific memory."
                     st.markdown(ai_response)
                     conversation.append({"role": "assistant", "content": ai_response})
@@ -1956,12 +1888,7 @@ with col3:
     total_all_topics = sum(len(s["questions"]) for s in SESSIONS)
     st.metric("Topics Explored", f"{total_topics_answered}/{total_all_topics}")
 with col4:
-    if st.session_state.logged_in:
-        try:
-            total_images = get_total_user_images(st.session_state.user_id)
-            st.metric("Total Photos", f"{total_images}")
-        except:
-            st.metric("Total Photos", "0")
+    st.metric("Total Stories", f"{total_topics_answered}")
 
 st.divider()
 st.subheader("📘 Publish & Save Your Biography")
@@ -2048,15 +1975,11 @@ st.markdown("---")
 if st.session_state.user_account:
     profile = st.session_state.user_account['profile']
     account_age = (datetime.now() - datetime.fromisoformat(st.session_state.user_account['created_at'])).days
-    try:
-        total_images = get_total_user_images(st.session_state.user_id) if st.session_state.logged_in else 0
-    except:
-        total_images = 0
     
     footer_info = f"""
 MemLife Timeline • 👤 {profile['first_name']} {profile['last_name']} • 📧 {profile['email']} •
 🎂 {profile.get('birthdate', 'Not specified')} • 🔥 {st.session_state.streak_days} day streak •
-📷 {total_images} photos • 📅 Account Age: {account_age} days
+📅 Account Age: {account_age} days
 """
     st.caption(footer_info)
 else:
