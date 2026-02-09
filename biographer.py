@@ -1237,6 +1237,14 @@ st.markdown(f"""
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
+    # Add "Tell My Story" header at top of sidebar
+    st.markdown("""
+    <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem; border-bottom: 2px solid #b5f5ec;">
+        <h2 style="color: #0066cc; margin: 0;">Tell My Story</h2>
+        <p style="color: #36cfc9; font-size: 0.9rem; margin: 0.25rem 0 0 0;">Your Life Timeline</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
     # 1. Your Profile
     st.header("👤 Your Profile")
     if st.session_state.user_account:
@@ -1267,7 +1275,7 @@ with st.sidebar:
     
     st.divider()
     
-    # 3. Sessions - FIXED: Left justified text
+    # 3. Sessions - FIXED: Removed "Session" from button text
     st.header("📖 Sessions")
     for i, session in enumerate(SESSIONS):
         session_id = session["id"]
@@ -1286,18 +1294,8 @@ with st.sidebar:
         if i == st.session_state.current_session:
             status = "▶️"  # Current session
         
-        button_text = f"{status} Session {session_id}: {session['title']}"
-        # Add custom CSS for left-aligned text
-        st.markdown("""
-        <style>
-        div[data-testid="column"] .stButton button,
-        section[data-testid="stSidebar"] .stButton button {
-            text-align: left !important;
-            justify-content: flex-start !important;
-            padding-left: 1rem !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+        # REMOVED "Session" from button text
+        button_text = f"{status} {session_id}: {session['title']}"
         
         if st.button(button_text, key=f"select_session_{i}", use_container_width=True):
             st.session_state.current_session = i
@@ -1357,7 +1355,7 @@ with st.sidebar:
     
     st.divider()
     
-    # 6. Historical Context - FIXED: Blue expander button
+    # 6. Historical Context
     st.header("📜 Historical Context")
     if st.session_state.user_account and st.session_state.user_account['profile'].get('birthdate'):
         try:
@@ -1365,22 +1363,6 @@ with st.sidebar:
             events = get_events_for_birth_year(birth_year)
             if events:
                 st.caption(f"From {birth_year} to present")
-                
-                # Custom CSS for blue expander
-                st.markdown("""
-                <style>
-                .streamlit-expanderHeader {
-                    background: linear-gradient(135deg, #1890ff 0%, #36cfc9 100%) !important;
-                    color: white !important;
-                    border-radius: 8px !important;
-                    border: 2px solid #b5f5ec !important;
-                }
-                
-                .streamlit-expanderHeader:hover {
-                    background: linear-gradient(135deg, #096dd9 0%, #13c2c2 100%) !important;
-                }
-                </style>
-                """, unsafe_allow_html=True)
                 
                 with st.expander("View Sample Events", expanded=False):
                     for i, event in enumerate(events[:5]):
@@ -1444,7 +1426,7 @@ with st.sidebar:
     
     st.divider()
     
-    # 10. Export Options - FIXED: Now stacked
+    # 10. Export Options - FIXED: Blue download buttons
     st.subheader("📤 Export Options")
     total_answers = sum(len(session.get("questions", {})) for session in st.session_state.responses.values())
     st.caption(f"Total answers: {total_answers}")
@@ -1480,14 +1462,17 @@ with st.sidebar:
             publisher_base_url = "https://deeperbiographer-dny9n2j6sflcsppshrtrmu.streamlit.app/"
             publisher_url = f"{publisher_base_url}?data={encoded_data}"
             
-            # Stacked download buttons
+            # Stacked download buttons - now styled with blue theme
+            stories_only = {
+                "user": st.session_state.user_id,
+                "stories": export_data,
+                "export_date": datetime.now().isoformat()
+            }
+            stories_json = json.dumps(stories_only, indent=2)
+            
             if st.download_button(
                 label="📥 Stories Only",
-                data=json.dumps({
-                    "user": st.session_state.user_id,
-                    "stories": export_data,
-                    "export_date": datetime.now().isoformat()
-                }, indent=2),
+                data=stories_json,
                 file_name=f"Tell_My_Story_Stories_{st.session_state.user_id}.json",
                 mime="application/json",
                 use_container_width=True,
@@ -1984,3 +1969,5 @@ Tell My Story Timeline • 👤 {profile['first_name']} {profile['last_name']} �
     st.caption(footer_info)
 else:
     st.caption(f"Tell My Story Timeline • User: {st.session_state.user_id} • 🔥 {st.session_state.streak_days} day streak")
+
+
