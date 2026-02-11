@@ -1,4 +1,4 @@
-# novel_app.py - Standalone Novel Writing Application
+# novel_app.py - Standalone Novel Writing Application (FIXED VERSION)
 import streamlit as st
 import pandas as pd
 import json
@@ -7,15 +7,13 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import hashlib
 import time
+
 # ============================================================================
 # AUTO-CREATE TEMPLATE FILES ON STARTUP
 # ============================================================================
 
 def create_template_files():
     """Create template CSV files if they don't exist"""
-    import os
-    import pandas as pd
-    
     templates_dir = "novel_templates"
     os.makedirs(templates_dir, exist_ok=True)
     
@@ -101,15 +99,43 @@ def create_template_files():
         "word_target": [2000, 2500, 3000, 2800, 3200, 2800, 2500, 3000]
     }
     
+    # Sci-Fi template
+    scifi_data = {
+        "chapter_id": [1, 2, 3, 4, 5, 6, 7, 8],
+        "title": [
+            "The Discovery",
+            "New World/Technology",
+            "First Contact",
+            "The Threat Revealed",
+            "Escape/Evasion",
+            "Understanding the Alien",
+            "The Plan",
+            "Final Confrontation"
+        ],
+        "guidance": [
+            "Scientific discovery or technological breakthrough",
+            "Explore the new world or technology implications",
+            "Encounter with alien life or AI",
+            "Understand the true danger or conflict",
+            "Race against time or escape from danger",
+            "Learn the alien/AI perspective or motives",
+            "Devise a solution using science/technology",
+            "Climactic resolution using the discovery"
+        ],
+        "word_target": [2500, 3000, 3200, 2800, 3500, 3000, 2800, 4000]
+    }
+    
     # Save all templates
     pd.DataFrame(fantasy_data).to_csv(f"{templates_dir}/fantasy_novel_template.csv", index=False)
     pd.DataFrame(mystery_data).to_csv(f"{templates_dir}/mystery_novel_template.csv", index=False)
     pd.DataFrame(romance_data).to_csv(f"{templates_dir}/romance_novel_template.csv", index=False)
+    pd.DataFrame(scifi_data).to_csv(f"{templates_dir}/scifi_novel_template.csv", index=False)
     
     return True
 
-# Call this function at the very beginning of your app
+# Create templates on startup
 create_template_files()
+
 # ============================================================================
 # PAGE CONFIG
 # ============================================================================
@@ -175,18 +201,26 @@ class NovelData:
         return novel_data
     
     def load_novel(self):
+        """Load novel data from file"""
         if os.path.exists(self.novel_file):
-            with open(self.novel_file, 'r') as f:
-                return json.load(f)
+            try:
+                with open(self.novel_file, 'r') as f:
+                    return json.load(f)
+            except:
+                return None
         return None
     
     def save_novel(self, novel_data):
-        novel_data["modified"] = datetime.now().isoformat()
-        with open(self.novel_file, 'w') as f:
-            json.dump(novel_data, f, indent=2)
-        return True
+        """Save novel data to file"""
+        if novel_data:
+            novel_data["modified"] = datetime.now().isoformat()
+            with open(self.novel_file, 'w') as f:
+                json.dump(novel_data, f, indent=2)
+            return True
+        return False
     
     def add_chapter(self, chapter_data):
+        """Add a new chapter to the novel"""
         novel = self.load_novel()
         if novel:
             # Generate chapter ID
@@ -194,7 +228,7 @@ class NovelData:
             chapter_data["id"] = chapter_id
             chapter_data["created"] = datetime.now().isoformat()
             chapter_data["modified"] = datetime.now().isoformat()
-            chapter_data["word_count"] = len(chapter_data.get("content", "").split())
+            chapter_data["word_count"] = len(str(chapter_data.get("content", "")).split())
             
             novel["chapters"].append(chapter_data)
             
@@ -207,23 +241,35 @@ class NovelData:
         return None
     
     def update_chapter(self, chapter_id, updates):
+        """Update an existing chapter"""
         novel = self.load_novel()
-        if novel and 0 <= chapter_id - 1 < len(novel["chapters"]):
-            novel["chapters"][chapter_id - 1].update(updates)
-            novel["chapters"][chapter_id - 1]["modified"] = datetime.now().isoformat()
-            novel["chapters"][chapter_id - 1]["word_count"] = len(updates.get("content", "").split())
-            
-            # Update stats
-            novel["stats"]["total_words"] = sum(c.get("word_count", 0) for c in novel["chapters"])
-            self.save_novel(novel)
-            return True
+        if novel and novel.get("chapters"):
+            chapter_index = chapter_id - 1
+            if 0 <= chapter_index < len(novel["chapters"]):
+                # Update chapter data
+                novel["chapters"][chapter_index].update(updates)
+                novel["chapters"][chapter_index]["modified"] = datetime.now().isoformat()
+                
+                # Update word count if content changed
+                if "content" in updates:
+                    content = updates["content"]
+                    novel["chapters"][chapter_index]["word_count"] = len(str(content).split())
+                
+                # Update overall stats
+                novel["stats"]["total_words"] = sum(c.get("word_count", 0) for c in novel["chapters"])
+                novel["stats"]["chapters_completed"] = len([c for c in novel["chapters"] if c.get("completed", False)])
+                
+                self.save_novel(novel)
+                return True
         return False
     
     def add_character(self, character_data):
+        """Add a new character to the novel"""
         novel = self.load_novel()
         if novel:
             character_id = len(novel["characters"]) + 1
             character_data["id"] = character_id
+            character_data["created"] = datetime.now().isoformat()
             novel["characters"].append(character_data)
             self.save_novel(novel)
             return character_id
@@ -237,70 +283,35 @@ class TemplateLoader:
     def __init__(self):
         self.templates_dir = "novel_templates"
         os.makedirs(self.templates_dir, exist_ok=True)
-        self.create_default_templates()
-    
-    def create_default_templates(self):
-        templates = {
-            "fantasy": {
-                "name": "Fantasy Epic",
-                "chapters": [
-                    {"title": "The Ordinary World", "guidance": "Introduce your protagonist in their normal life before the adventure begins.", "word_target": 2500},
-                    {"title": "The Call to Adventure", "guidance": "The moment everything changes. What disrupts the ordinary world?", "word_target": 3000},
-                    {"title": "Refusal of the Call", "guidance": "Why does your protagonist hesitate or resist the journey?", "word_target": 2000},
-                    {"title": "Meeting the Mentor", "guidance": "Who provides guidance, training, or magical aid?", "word_target": 2500},
-                    {"title": "Crossing the Threshold", "guidance": "The point of no return. Entering the special world.", "word_target": 3000}
-                ]
-            },
-            "mystery": {
-                "name": "Mystery/Thriller",
-                "chapters": [
-                    {"title": "The Crime Scene", "guidance": "Introduce the crime or mystery. Show, don't tell.", "word_target": 2000},
-                    {"title": "The Detective Arrives", "guidance": "Introduce your sleuth. Show their unique approach.", "word_target": 2500},
-                    {"title": "First Clues", "guidance": "Plant clues and red herrings. Introduce suspects.", "word_target": 3000},
-                    {"title": "The Investigation Deepens", "guidance": "Raise stakes. Personal connection to detective?", "word_target": 3000},
-                    {"title": "The Twist", "guidance": "Unexpected revelation that changes everything.", "word_target": 2500}
-                ]
-            },
-            "romance": {
-                "name": "Contemporary Romance",
-                "chapters": [
-                    {"title": "The Meet-Cute", "guidance": "How do your protagonists first encounter each other?", "word_target": 2000},
-                    {"title": "First Impressions", "guidance": "Initial attraction and/or conflict. Chemistry!", "word_target": 2500},
-                    {"title": "Growing Connection", "guidance": "Shared experiences that bring them closer.", "word_target": 3000},
-                    {"title": "The Conflict", "guidance": "What stands in their way? Internal or external?", "word_target": 3000},
-                    {"title": "The Resolution", "guidance": "How do they overcome obstacles?", "word_target": 2500}
-                ]
-            }
-        }
-        
-        for genre, template in templates.items():
-            df = pd.DataFrame(template["chapters"])
-            df["chapter_id"] = range(1, len(df) + 1)
-            df.to_csv(f"{self.templates_dir}/{genre}_novel_template.csv", index=False)
     
     def load_template(self, genre):
+        """Load template for specific genre"""
         file_path = f"{self.templates_dir}/{genre}_novel_template.csv"
         if os.path.exists(file_path):
             return pd.read_csv(file_path)
         return None
     
     def get_available_templates(self):
+        """Get list of available template genres"""
         templates = []
         for file in os.listdir(self.templates_dir):
-            if file.endswith("_template.csv"):
+            if file.endswith("_novel_template.csv"):
                 genre = file.replace("_novel_template.csv", "")
                 templates.append(genre)
-        return templates
+        return sorted(templates)
 
 # ============================================================================
-# UI COMPONENTS
+# UI COMPONENTS (FIXED VERSIONS)
 # ============================================================================
 
-def render_novel_header(novel_data):
-    if not novel_data:
+def render_novel_header(novel):
+    """Render the novel header with progress"""
+    if not novel:
         return
     
-    progress = (novel_data["stats"]["total_words"] / novel_data["target_word_count"]) * 100
+    progress = 0
+    if novel.get("target_word_count", 0) > 0:
+        progress = (novel["stats"]["total_words"] / novel["target_word_count"]) * 100
     progress = min(progress, 100)
     
     col1, col2, col3 = st.columns([3, 1, 1])
@@ -308,27 +319,32 @@ def render_novel_header(novel_data):
     with col1:
         st.markdown(f"""
         <div class="novel-header">
-        <h1>📖 {novel_data['title']}</h1>
-        <p>Genre: {novel_data['genre'].title()} | Created: {datetime.fromisoformat(novel_data['created']).strftime('%B %d, %Y')}</p>
+        <h1>📖 {novel['title']}</h1>
+        <p>Genre: {novel['genre'].title()} | Created: {datetime.fromisoformat(novel['created']).strftime('%B %d, %Y')}</p>
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
-        st.metric("Total Words", f"{novel_data['stats']['total_words']:,}")
-        st.caption(f"Target: {novel_data['target_word_count']:,}")
+        st.metric("Total Words", f"{novel['stats']['total_words']:,}")
+        st.caption(f"Target: {novel['target_word_count']:,}")
     
     with col3:
         st.metric("Progress", f"{progress:.1f}%")
         st.progress(progress / 100)
 
-def render_chapter_navigation(novel_data, current_chapter):
-    if not novel_data or not novel_data.get("chapters"):
+def render_chapter_navigation(novel, current_chapter, data_manager):
+    """Render chapter navigation sidebar"""
+    if not novel or not novel.get("chapters"):
         st.info("No chapters yet. Create your first chapter!")
+        
+        if st.button("➕ Create First Chapter", use_container_width=True, type="primary"):
+            st.session_state.show_new_chapter_modal = True
+            st.rerun()
         return
     
     st.subheader("📚 Chapters")
     
-    for i, chapter in enumerate(novel_data["chapters"]):
+    for i, chapter in enumerate(novel["chapters"]):
         status = "▶️" if i == current_chapter else ("✓" if chapter.get("completed", False) else "○")
         word_count = chapter.get("word_count", 0)
         
@@ -351,12 +367,16 @@ def render_chapter_navigation(novel_data, current_chapter):
         st.session_state.show_new_chapter_modal = True
         st.rerun()
 
-def render_writing_interface(novel_data, chapter_index):
-    if not novel_data or chapter_index >= len(novel_data["chapters"]):
+def render_writing_interface(data_manager, chapter_index):
+    """Render the main writing area for a chapter"""
+    # Load the novel data first
+    novel = data_manager.load_novel()
+    
+    if not novel or chapter_index >= len(novel.get("chapters", [])):
         st.warning("Select or create a chapter to start writing")
         return
     
-    chapter = novel_data["chapters"][chapter_index]
+    chapter = novel["chapters"][chapter_index]
     
     # Chapter header
     col1, col2, col3 = st.columns([3, 1, 1])
@@ -369,8 +389,8 @@ def render_writing_interface(novel_data, chapter_index):
         completed = st.checkbox("Mark Complete", value=chapter.get("completed", False), 
                                key=f"complete_ch_{chapter_index}")
         if completed != chapter.get("completed", False):
-            novel_data["chapters"][chapter_index]["completed"] = completed
-            novel_data.save_novel(novel_data)
+            # Update completion status
+            data_manager.update_chapter(chapter_index + 1, {"completed": completed})
     
     # Chapter guidance
     if chapter.get("guidance"):
@@ -387,12 +407,14 @@ def render_writing_interface(novel_data, chapter_index):
     )
     
     # Save button
-    if st.button("💾 Save Chapter", type="primary", use_container_width=True):
-        if content != chapter.get("content", ""):
-            novel_data.update_chapter(chapter_index + 1, {"content": content})
-            st.success("Chapter saved!")
-            time.sleep(0.5)
-            st.rerun()
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("💾 Save Chapter", type="primary", use_container_width=True):
+            if content != chapter.get("content", ""):
+                data_manager.update_chapter(chapter_index + 1, {"content": content})
+                st.success("Chapter saved!")
+                time.sleep(0.5)
+                st.rerun()
     
     # Chapter notes
     with st.expander("📋 Chapter Notes & Planning"):
@@ -403,14 +425,20 @@ def render_writing_interface(novel_data, chapter_index):
             key=f"chapter_notes_{chapter_index}",
             placeholder="Plot points, character developments, research notes..."
         )
-        if notes != chapter.get("notes", ""):
-            novel_data.update_chapter(chapter_index + 1, {"notes": notes})
+        if st.button("Save Notes", key=f"save_notes_{chapter_index}"):
+            if notes != chapter.get("notes", ""):
+                data_manager.update_chapter(chapter_index + 1, {"notes": notes})
+                st.success("Notes saved!")
 
-def render_character_panel(novel_data):
+def render_character_panel(novel):
+    """Render character management panel"""
+    if not novel:
+        return
+    
     st.subheader("👥 Characters")
     
-    if novel_data.get("characters"):
-        for char in novel_data["characters"]:
+    if novel.get("characters"):
+        for char in novel["characters"]:
             with st.expander(f"{char.get('name', 'Unnamed')} - {char.get('role', 'Character')}"):
                 col1, col2 = st.columns(2)
                 with col1:
@@ -420,20 +448,26 @@ def render_character_panel(novel_data):
                     st.write(f"**Personality:** {char.get('personality', 'Not specified')}")
                     st.write(f"**Motivation:** {char.get('motivation', 'Not specified')}")
                 st.write(f"**Background:** {char.get('background', 'Not specified')}")
+    else:
+        st.info("No characters yet. Add your first character!")
     
     if st.button("➕ Add Character", key="add_character"):
         st.session_state.show_character_modal = True
         st.rerun()
 
-def render_plot_tracker(novel_data):
+def render_plot_tracker(novel):
+    """Render plot tracking visualization"""
+    if not novel:
+        return
+    
     st.subheader("📈 Plot Progress")
     
-    if not novel_data.get("chapters"):
+    if not novel.get("chapters"):
         st.info("Write some chapters to track your plot")
         return
     
     # Create a simple plot arc visualization
-    chapters = novel_data["chapters"]
+    chapters = novel["chapters"]
     tension_levels = []
     
     for i, chapter in enumerate(chapters):
@@ -448,50 +482,52 @@ def render_plot_tracker(novel_data):
         tension_levels.append(tension)
     
     # Plot using Plotly
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scatter(
-        x=list(range(1, len(tension_levels) + 1)),
-        y=tension_levels,
-        mode='lines+markers',
-        name='Story Tension',
-        line=dict(color='#673ab7', width=3),
-        marker=dict(size=8)
-    ))
-    
-    # Add story beat annotations
-    if len(chapters) >= 3:
-        beats = [
-            (1, "Inciting Incident"),
-            (max(1, len(chapters)//4), "First Plot Point"),
-            (len(chapters)//2, "Midpoint"),
-            (max(len(chapters)//2 + 1, len(chapters)*3//4), "Climax"),
-            (len(chapters), "Resolution")
-        ]
+    if tension_levels:
+        fig = go.Figure()
         
-        for x_pos, label in beats:
-            if x_pos <= len(chapters):
-                fig.add_annotation(
-                    x=x_pos,
-                    y=tension_levels[x_pos-1] if x_pos <= len(tension_levels) else 50,
-                    text=label,
-                    showarrow=True,
-                    arrowhead=2,
-                    arrowsize=1,
-                    arrowwidth=2,
-                    arrowcolor="#ff9800"
-                )
-    
-    fig.update_layout(
-        title="Story Arc Visualization",
-        xaxis_title="Chapter",
-        yaxis_title="Tension Level",
-        height=300,
-        showlegend=False,
-        plot_bgcolor='rgba(0,0,0,0)'
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
+        fig.add_trace(go.Scatter(
+            x=list(range(1, len(tension_levels) + 1)),
+            y=tension_levels,
+            mode='lines+markers',
+            name='Story Tension',
+            line=dict(color='#673ab7', width=3),
+            marker=dict(size=8)
+        ))
+        
+        # Add story beat annotations
+        if len(chapters) >= 3:
+            beats = [
+                (1, "Inciting Incident"),
+                (max(1, len(chapters)//4), "First Plot Point"),
+                (len(chapters)//2, "Midpoint"),
+                (max(len(chapters)//2 + 1, len(chapters)*3//4), "Climax"),
+                (len(chapters), "Resolution")
+            ]
+            
+            for x_pos, label in beats:
+                if x_pos <= len(chapters):
+                    y_pos = tension_levels[x_pos-1] if x_pos <= len(tension_levels) else 50
+                    fig.add_annotation(
+                        x=x_pos,
+                        y=y_pos,
+                        text=label,
+                        showarrow=True,
+                        arrowhead=2,
+                        arrowsize=1,
+                        arrowwidth=2,
+                        arrowcolor="#ff9800"
+                    )
+        
+        fig.update_layout(
+            title="Story Arc Visualization",
+            xaxis_title="Chapter",
+            yaxis_title="Tension Level",
+            height=300,
+            showlegend=False,
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
     
     # Word count by chapter
     if chapters:
@@ -513,7 +549,8 @@ def render_plot_tracker(novel_data):
         
         st.plotly_chart(fig2, use_container_width=True)
 
-def render_new_chapter_modal():
+def render_new_chapter_modal(data_manager):
+    """Modal for creating a new chapter"""
     st.markdown('<div class="modal-overlay">', unsafe_allow_html=True)
     
     st.subheader("➕ Create New Chapter")
@@ -544,8 +581,7 @@ def render_new_chapter_modal():
             st.rerun()
         
         if submit and title:
-            novel_data = NovelData(st.session_state.user_id)
-            novel = novel_data.load_novel()
+            novel = data_manager.load_novel()
             
             if novel:
                 # If using template, get guidance from template
@@ -568,7 +604,7 @@ def render_new_chapter_modal():
                     "tags": []
                 }
                 
-                chapter_id = novel_data.add_chapter(chapter_data)
+                chapter_id = data_manager.add_chapter(chapter_data)
                 if chapter_id:
                     st.session_state.current_chapter = chapter_id - 1
                     st.session_state.show_new_chapter_modal = False
@@ -578,7 +614,8 @@ def render_new_chapter_modal():
     
     st.markdown('</div>', unsafe_allow_html=True)
 
-def render_character_modal():
+def render_character_modal(data_manager):
+    """Modal for adding a new character"""
     st.markdown('<div class="modal-overlay">', unsafe_allow_html=True)
     
     st.subheader("👥 Add New Character")
@@ -616,7 +653,6 @@ def render_character_modal():
             st.rerun()
         
         if submit and name:
-            novel_data = NovelData(st.session_state.user_id)
             character_data = {
                 "name": name,
                 "role": role,
@@ -629,7 +665,7 @@ def render_character_modal():
                 "created": datetime.now().isoformat()
             }
             
-            character_id = novel_data.add_character(character_data)
+            character_id = data_manager.add_character(character_data)
             if character_id:
                 st.session_state.show_character_modal = False
                 st.success(f"Character '{name}' added!")
@@ -657,8 +693,8 @@ def main():
         st.session_state.show_character_modal = False
     
     # Initialize data manager
-    novel_data = NovelData(st.session_state.user_id)
-    novel = novel_data.load_novel()
+    data_manager = NovelData(st.session_state.user_id)
+    novel = data_manager.load_novel()
     
     # If no novel exists, show creation screen
     if not novel:
@@ -676,7 +712,7 @@ def main():
                 
                 if st.form_submit_button("Create Novel", type="primary", use_container_width=True):
                     if title:
-                        new_novel = novel_data.create_new_novel(title, genre, target_words)
+                        new_novel = data_manager.create_new_novel(title, genre, target_words)
                         st.success(f"Novel '{title}' created!")
                         st.balloons()
                         time.sleep(1)
@@ -730,7 +766,7 @@ def main():
         st.divider()
         
         # Navigation
-        render_chapter_navigation(novel, st.session_state.current_chapter)
+        render_chapter_navigation(novel, st.session_state.current_chapter, data_manager)
         
         st.divider()
         
@@ -755,7 +791,7 @@ def main():
     
     with col1:
         # Writing interface
-        render_writing_interface(novel_data, st.session_state.current_chapter)
+        render_writing_interface(data_manager, st.session_state.current_chapter)
         
         # Chapter notes expander
         if novel.get("chapters") and st.session_state.current_chapter < len(novel["chapters"]):
@@ -771,7 +807,7 @@ def main():
         # Quick stats
         st.subheader("⚡ Quick Stats")
         
-        if novel.get("chapters"):
+        if novel.get("chapters") and st.session_state.current_chapter < len(novel["chapters"]):
             current_chapter = novel["chapters"][st.session_state.current_chapter]
             word_count = current_chapter.get("word_count", 0)
             target = current_chapter.get("word_target", 2500)
@@ -805,13 +841,12 @@ def main():
     
     # Modals
     if st.session_state.show_new_chapter_modal:
-        render_new_chapter_modal()
+        render_new_chapter_modal(data_manager)
         st.stop()
     
     if st.session_state.show_character_modal:
-        render_character_modal()
+        render_character_modal(data_manager)
         st.stop()
 
 if __name__ == "__main__":
     main()
-
