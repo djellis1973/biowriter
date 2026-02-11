@@ -7,7 +7,109 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import hashlib
 import time
+# ============================================================================
+# AUTO-CREATE TEMPLATE FILES ON STARTUP
+# ============================================================================
 
+def create_template_files():
+    """Create template CSV files if they don't exist"""
+    import os
+    import pandas as pd
+    
+    templates_dir = "novel_templates"
+    os.makedirs(templates_dir, exist_ok=True)
+    
+    # Fantasy template
+    fantasy_data = {
+        "chapter_id": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        "title": [
+            "The Ordinary World",
+            "The Call to Adventure",
+            "Refusal of the Call",
+            "Meeting the Mentor",
+            "Crossing the Threshold",
+            "Tests, Allies, Enemies",
+            "Approach to the Inmost Cave",
+            "The Ordeal",
+            "Reward",
+            "The Road Back"
+        ],
+        "guidance": [
+            "Introduce your protagonist in their normal life",
+            "What disrupts their ordinary world?",
+            "Why do they hesitate to embark on the journey?",
+            "Who provides guidance or magical aid?",
+            "The point of no return into the special world",
+            "Early challenges and new relationships",
+            "Preparation for the central ordeal",
+            "The biggest challenge - face death or greatest fear",
+            "What do they gain from surviving the ordeal?",
+            "The journey back to the ordinary world"
+        ],
+        "word_target": [2500, 3000, 2000, 2500, 3000, 3500, 3000, 4000, 2500, 3000]
+    }
+    
+    # Mystery template
+    mystery_data = {
+        "chapter_id": [1, 2, 3, 4, 5, 6, 7, 8],
+        "title": [
+            "The Crime Scene",
+            "The Detective Arrives",
+            "First Clues",
+            "Suspect Interviews",
+            "The Investigation Deepens",
+            "False Lead & Red Herring",
+            "The Breakthrough",
+            "Reveal & Resolution"
+        ],
+        "guidance": [
+            "Introduce the crime or mystery. Show, don't tell",
+            "Introduce your sleuth. Show their unique approach",
+            "Plant clues and red herrings. Introduce suspects",
+            "Interview key characters, reveal motives",
+            "Raise stakes. Personal connection to detective?",
+            "A promising lead that turns out to be wrong",
+            "Key clue that changes everything",
+            "Unmask the culprit, tie up loose ends"
+        ],
+        "word_target": [2000, 2500, 3000, 2800, 3200, 2800, 2500, 3000]
+    }
+    
+    # Romance template
+    romance_data = {
+        "chapter_id": [1, 2, 3, 4, 5, 6, 7, 8],
+        "title": [
+            "The Meet-Cute",
+            "First Impressions",
+            "Growing Connection",
+            "First Date/Kiss",
+            "The Conflict",
+            "The Break/Misunderstanding",
+            "Realization & Growth",
+            "The Grand Gesture"
+        ],
+        "guidance": [
+            "How do your protagonists first encounter each other?",
+            "Initial attraction and/or conflict. Show chemistry!",
+            "Shared experiences that bring them closer",
+            "The first romantic milestone",
+            "What stands in their way? Internal or external?",
+            "The breaking point or major misunderstanding",
+            "Characters realize what they truly want/need",
+            "Final romantic resolution and commitment"
+        ],
+        "word_target": [2000, 2500, 3000, 2800, 3200, 2800, 2500, 3000]
+    }
+    
+    # Save all templates
+    pd.DataFrame(fantasy_data).to_csv(f"{templates_dir}/fantasy_novel_template.csv", index=False)
+    pd.DataFrame(mystery_data).to_csv(f"{templates_dir}/mystery_novel_template.csv", index=False)
+    pd.DataFrame(romance_data).to_csv(f"{templates_dir}/romance_novel_template.csv", index=False)
+    
+    return True
+
+# Call this function at the very beginning of your app
+create_template_files()
 # ============================================================================
 # PAGE CONFIG
 # ============================================================================
